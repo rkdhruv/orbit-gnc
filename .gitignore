@@ -1,0 +1,17 @@
+# Build output (all presets write to build/<preset>)
+build/
+CMakeUserPresets.json
+compile_commands.json
+
+# Editors / tooling
+.cache/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Python / notebooks (analysis/)
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
