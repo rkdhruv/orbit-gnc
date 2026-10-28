@@ -14,6 +14,10 @@ option(ORBIT_WERROR "Treat warnings in our own targets as errors" OFF)
 # An FMA rounds once instead of twice, so whether it's used changes the last
 # bit of results depending on compiler/CPU. Set before any dependency is added
 # so it applies to every target in the build, third-party ones included.
+# Caveat: this only governs compiler-generated code. Eigen's hand-written SIMD
+# kernels call FMA intrinsics directly on arm64 (vfmaq_f64), so matrix products
+# can still differ in the last bit between arm64 and x86-64. Replays are
+# bit-identical on the same platform, not guaranteed across architectures.
 add_compile_options(-ffp-contract=off)
 
 # Warning set for our own code only (dependencies are not held to it).

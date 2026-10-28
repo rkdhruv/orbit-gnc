@@ -1,7 +1,12 @@
 include(GoogleTest)
 
 add_executable(simcore_tests
-    test_smoke.cpp)
+    test_smoke.cpp
+    test_check.cpp
+    test_constants.cpp
+    orbits/test_epoch.cpp
+    dynamics/test_state.cpp
+    dynamics/test_point_mass_gravity.cpp)
 target_link_libraries(simcore_tests PRIVATE simcore GTest::gtest_main orbit_warnings)
 
 gtest_discover_tests(simcore_tests)

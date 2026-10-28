@@ -46,8 +46,10 @@ cmake/     dependency pins
 ```
 
 Every target is built with `-ffp-contract=off`, so the compiler never fuses
-`a*b + c` into an FMA. That keeps floating-point results reproducible across
-machines.
+`a*b + c` into an FMA, and replays are bit-identical on the same platform.
+That flag doesn't reach Eigen's hand-written arm64 SIMD kernels, which use FMA
+intrinsics, so matrix products may differ in the last bit between arm64 and
+x86-64.
 
 ## Results
 
