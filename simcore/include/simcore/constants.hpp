@@ -2,9 +2,10 @@
 
 namespace simcore::earth {
 
-inline constexpr double mu = 3.986004418e14;  // gravitational parameter GM [m^3/s^2]
-inline constexpr double radius = 6.378137e6;  // equatorial radius [m]
-inline constexpr double j2 = 1.08263e-3;      // second zonal harmonic [-]
+inline constexpr double mu = 3.986004418e14;                // gravitational parameter GM [m^3/s^2]
+inline constexpr double radius = 6.378137e6;                // equatorial radius [m]
+inline constexpr double j2 = 1.08263e-3;                    // second zonal harmonic [-]
+inline constexpr double rotation_rate_radps = 7.292115e-5;  // sidereal spin rate (WGS-84) [rad/s]
 
 }  // namespace simcore::earth
 

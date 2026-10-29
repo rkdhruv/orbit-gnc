@@ -9,6 +9,8 @@ add_executable(simcore_tests
     orbits/test_kepler.cpp
     dynamics/test_state.cpp
     dynamics/test_point_mass_gravity.cpp
+    dynamics/test_j2_gravity.cpp
+    dynamics/test_exponential_drag.cpp
     integrators/test_fixed_step.cpp
     events/test_brent.cpp
     events/test_events.cpp

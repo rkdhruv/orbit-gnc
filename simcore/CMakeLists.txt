@@ -1,5 +1,8 @@
 add_library(simcore STATIC
     src/version.cpp
+    src/dynamics/exponential_drag.cpp
+    src/dynamics/force_sum.cpp
+    src/dynamics/j2_gravity.cpp
     src/dynamics/point_mass_gravity.cpp
     src/events/brent.cpp
     src/events/events.cpp
