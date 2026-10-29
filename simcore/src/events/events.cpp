@@ -75,10 +75,11 @@ EventRun propagate_with_events(DormandPrince54& dp, const ForceModel& f, const S
         std::vector<Candidate> found;
         for (std::size_t i = 0; i < events.size(); ++i) {
             const EventSpec& ev = events[i];
-            const double g0 = g_prev[i];
-            const double g1 = ev.g(s_end);
-            g_prev[i] = g1;
-            if (!crosses(forward ? g0 : g1, forward ? g1 : g0, ev.direction)) {
+            // (not g0/g1: g0 is standard gravity in simcore, and GCC flags the shadowing)
+            const double g_start = g_prev[i];
+            const double g_end = ev.g(s_end);
+            g_prev[i] = g_end;
+            if (!crosses(forward ? g_start : g_end, forward ? g_end : g_start, ev.direction)) {
                 continue;
             }
             // Root of g along the segment, as a function of the offset dt from its start.
