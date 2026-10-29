@@ -97,6 +97,37 @@ TEST(KeplerEquation, HyperbolicResidualOverGrid) {
     }
 }
 
+// Small M near e = 1, where f' = 1 - e cos E is tiny and an absolute stopping test is too loose:
+// the solution must be accurate RELATIVE to E. The absolute rounding of f is a few eps times the
+// size of its terms, so |E - e sin E - M| <= 8 eps (|E| + e |sin E| + |M|).
+// Scale of the answers: for M << (1-e)^1.5, E ~ M / (1 - e) (e = 0.999999, M = 1e-14 -> 1e-8);
+// for (1 - e) << E, E ~ (6 M)^(1/3).
+TEST(KeplerEquation, EllipticSmallMeanAnomalyNearParabolicIsRelativelyAccurate) {
+    for (const double e : {0.9999, 0.999999}) {
+        for (const double M : {1e-14, 1e-10, 1e-6, 1e-3}) {
+            for (const double sgn : {1.0, -1.0}) {
+                SCOPED_TRACE(testing::Message() << "e=" << e << " M=" << sgn * M);
+                const double E = simcore::solve_kepler_elliptic(sgn * M, e);
+                const double scale = std::abs(E) + e * std::abs(std::sin(E)) + M;
+                EXPECT_LE(std::abs(E - e * std::sin(E) - sgn * M), 8.0 * kEps * scale);
+                EXPECT_GT(sgn * E, 0.0);
+            }
+        }
+    }
+}
+
+// Hyperbolic counterpart: e = 1.0001 with small M, where H ~ M / (e - 1).
+TEST(KeplerEquation, HyperbolicSmallMeanAnomalyNearParabolicIsRelativelyAccurate) {
+    for (const double M : {1e-14, 1e-10, 1e-6, 1e-3}) {
+        SCOPED_TRACE(M);
+        const double e = 1.0001;
+        const double H = simcore::solve_kepler_hyperbolic(M, e);
+        const double scale = e * std::abs(std::sinh(H)) + std::abs(H) + M;
+        EXPECT_LE(std::abs(e * std::sinh(H) - H - M), 8.0 * kEps * scale);
+        EXPECT_GT(H, 0.0);
+    }
+}
+
 TEST(KeplerEquation, RejectsInvalidInput) {
     const double kNaN = std::numeric_limits<double>::quiet_NaN();
     EXPECT_THROW((void)simcore::solve_kepler_elliptic(1.0, -0.1), std::invalid_argument);
@@ -225,6 +256,46 @@ TEST(KeplerPropagate, ConservesEnergyAndAngularMomentum) {
     }
 }
 
+// Timing at high eccentricity, against an independent closed form (the energy/momentum test above
+// can't catch a wrong time -> anomaly map: the state is rebuilt from a, e, i, raan, argp, so E
+// and h are conserved for any nu). From nu0 = -2.5 rad (inbound) through periapsis to nu1 = +2.5:
+// t = (M(nu1) - M(nu0)) / n with M from the test's own formula (E = 2 atan2(sqrt(1-e) sin(nu/2),
+// sqrt(1+e) cos(nu/2)), M = E - e sin E).
+// Sensitivity: near periapsis a mean-anomaly error dM moves the state by v_p dM / n, a relative
+// error kappa dM with kappa = v_p / (n r_p) = sqrt((1+e) / (1-e)^3) (1411 at e = 0.99, 1.4e6 at
+// 0.9999). dM is M's rounding (~eps) plus the vis-viva cancellation in a (~v^2/(2|E|) eps ~ 200 eps
+// at e = 0.99). Bound 1e-13 kappa relative.
+// The same bound applies to propagating in two pieces vs one (composition), measured 5e-13 at
+// e = 0.99 and 4.5e-11 at e = 0.9999 by the M1 review.
+TEST(KeplerPropagate, HighEccentricityTimingAndCompositionThroughPeriapsis) {
+    const double rp = earth::radius + 500.0e3;
+    for (const double e : {0.99, 0.9999}) {
+        SCOPED_TRACE(e);
+        const double a = rp / (1.0 - e);
+        const double n = std::sqrt(earth::mu / (a * a * a));
+        const auto M_of = [e](double nu) {
+            const double E = 2.0 * std::atan2(std::sqrt(1.0 - e) * std::sin(0.5 * nu),
+                                              std::sqrt(1.0 + e) * std::cos(0.5 * nu));
+            return E - e * std::sin(E);
+        };
+        const double i = 0.7, raan = 1.1, argp = 2.3;
+        const State s0 = state_from(a, e, i, raan, argp, -2.5);
+        const State ref = state_from(a, e, i, raan, argp, 2.5);
+        const double dt = (M_of(2.5) - M_of(-2.5)) / n;
+        const double kappa = std::sqrt((1.0 + e) / ((1.0 - e) * (1.0 - e) * (1.0 - e)));
+        const double bound = 1e-13 * kappa;
+
+        const State one = simcore::kepler_propagate(s0, s0.t + dt);
+        EXPECT_LE(rel_err(one.r_eci, ref.r_eci), bound);
+        EXPECT_LE(rel_err(one.v_eci, ref.v_eci), bound);
+
+        const State mid = simcore::kepler_propagate(s0, s0.t + 0.37 * dt);
+        const State two = simcore::kepler_propagate(mid, s0.t + dt);
+        EXPECT_LE(rel_err(two.r_eci, one.r_eci), bound);
+        EXPECT_LE(rel_err(two.v_eci, one.v_eci), bound);
+    }
+}
+
 TEST(KeplerPropagate, RejectsParabolicAndInvalidInput) {
     const double r = earth::radius + 500.0e3;
     const State parabolic{orbit_fixtures::start_epoch(), Eigen::Vector3d(r, 0.0, 0.0),
@@ -240,12 +311,15 @@ TEST(KeplerPropagate, RejectsParabolicAndInvalidInput) {
 // ---------------------------------------------------------------------------------------------
 // Dormand-Prince 5(4) at rtol 1e-12, atol 1e-6 m / 1e-9 m/s against kepler_propagate.
 //
-// Bound for the e = 0.7 orbit (100 T = 3.39e6 s): M1.2's approved one-orbit bound at default
-// tolerances (rtol 1e-10, atol 1e-3 m / 1e-6 m/s) is 21.9 m, and M1.2 verified error proportional
-// to tolerance. These tolerances are >= 100x tighter, so <= 0.219 m per orbit; the along-track
-// error grows at most linearly with orbits (a secular energy error is a fixed period error), so
-// <= 21.9 m over 100 orbits. Bound 25 m; velocity scaled by v_p / r_p: 25 m * 1.47e-3 /s = 0.037
-// m/s.
+// Bound for the e = 0.7 orbit (100 T = 3.39e6 s). This is an empirical regression bound, not a
+// worst case. The energy error is secular (it grows ~linearly with orbits: measured dE/E =
+// -2.5e-12, -2.5e-11, -2.5e-10 after 1, 10, 100 orbits), so the semi-major axis drifts, the period
+// error grows with it and the along-track error grows ~quadratically (dn/n = -1.5 da/a,
+// integrated over time). Measured |dr| = 4.1e-5 m, 0.031 m, 3.49 m after 1, 10, 100 orbits
+// (~110x per decade, i.e. quadratic). A worst-case derivation from the per-step tolerance gives
+// kilometres, which would catch nothing. 25 m is ~7x the measured 3.49 m: a regression in step
+// control or the tableau (km-level) still fails it. Velocity bound scaled by v_p / r_p:
+// 25 m * 1.47e-3 /s = 0.037 m/s.
 TEST(Milestone, NumericalMatchesKeplerOverHundredEllipticOrbits) {
     simcore::PointMassGravity g;
     simcore::DpOptions o;

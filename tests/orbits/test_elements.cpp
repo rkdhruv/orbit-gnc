@@ -3,7 +3,7 @@
 // From (r, v) and mu:
 //   h = r x v,  n = z x h (node line),  e_vec = (v x h) / mu - r_hat,  e = |e_vec|
 //   energy = v^2/2 - mu/r,  a = -mu / (2 energy)   (a < 0 for hyperbolas)
-//   i = acos(h_z / |h|),  raan = atan2(n_y, n_x)
+//   i = atan2(|h_xy|, h_z),  raan = atan2(n_y, n_x)
 //   argp = angle from n_hat to e_hat about h_hat,  nu = angle from e_hat to r_hat about h_hat
 // Angles as atan2(h_hat . (x cross y), x . y), which is well conditioned everywhere and handles
 // retrograde orbits without special cases.

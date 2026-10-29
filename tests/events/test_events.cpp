@@ -29,6 +29,7 @@
 #include "simcore/dynamics/point_mass_gravity.hpp"
 #include "simcore/events/events.hpp"
 #include "simcore/integrators/dormand_prince.hpp"
+#include "simcore/orbits/kepler.hpp"
 
 namespace {
 
@@ -181,6 +182,133 @@ TEST(Events, EventExactlyAtStartIsNotReported) {
         simcore::propagate_with_events(dp, g, s0, s0.t + 1.5 * T, {simcore::periapsis_event()});
     ASSERT_EQ(run.hits.size(), 1u);
     EXPECT_NEAR(run.hits[0].state.t - s0.t, T, kTimeTol_s);
+}
+
+// The start rule only discards a root that is the initial condition to roundoff:
+// |g(s0)| <= 1e-9 s * |dg/dt|. Here g(s0) = r . v = -6.8e-6 m^2/s (v nudged by -1e-12 m/s
+// radially at periapsis), i.e. the root is 6.8e-6 / 4.1e7 = 1.7e-13 s after s0: not an event.
+// Unlike EventExactlyAtStartIsNotReported (g(s0) = 0, which crosses() already rejects), this one
+// has a real sign change, so it fails if the start rule is removed.
+TEST(Events, RoundoffLevelRootAtStartIsNotReported) {
+    PointMassGravity g;
+    DormandPrince54 dp(tight_options());
+    State s0 = eccentric_periapsis_state();
+    s0.v_eci -= 1e-12 * s0.r_eci.normalized();
+    ASSERT_LT(s0.r_eci.dot(s0.v_eci), 0.0);
+    const double T = eccentric_period_s();
+    const EventRun run =
+        simcore::propagate_with_events(dp, g, s0, s0.t + 1.5 * T, {simcore::periapsis_event()});
+    ASSERT_EQ(run.hits.size(), 1u);
+    EXPECT_NEAR(run.hits[0].state.t - s0.t, T, kTimeTol_s);
+}
+
+// A real event shortly after the start is reported: starting 0.5 us before periapsis
+// (g(s0) = -0.5e-6 s * 4.1e7 m^2/s^2 = -20.5 m^2/s, far above roundoff), the periapsis must be
+// found at +0.5 us. Time bound: Brent's 1e-6 s tolerance + 0.5 us offset -> 2e-6 s.
+TEST(Events, EventHalfAMicrosecondAfterStartIsReported) {
+    PointMassGravity g;
+    DormandPrince54 dp(tight_options());
+    const State peri = eccentric_periapsis_state();
+    const State s0 = simcore::kepler_propagate(peri, peri.t - 0.5e-6);
+    ASSERT_LT(s0.r_eci.dot(s0.v_eci), -10.0);
+    const EventRun run =
+        simcore::propagate_with_events(dp, g, s0, s0.t + 100.0, {simcore::periapsis_event()});
+    ASSERT_EQ(run.hits.size(), 1u);
+    EXPECT_NEAR(run.hits[0].state.t - peri.t, 0.0, 2e-6);
+}
+
+// A terminal event is never discarded, however close to the start. 1 mm above the surface falling
+// at 2 km/s: impact at +0.5 us. Exactly on the surface, (R, 0, 0) so |r| = R and g(s0) = 0,
+// falling: the run must end at s0. Either way it stops at the surface instead of flying through the
+// Earth.
+TEST(Events, TerminalEventRightAfterStartIsNeverDropped) {
+    PointMassGravity g;
+    const Eigen::Vector3d x = Eigen::Vector3d::UnitX();
+    for (const double height_m : {1e-3, 0.0}) {
+        SCOPED_TRACE(height_m);
+        DormandPrince54 dp(tight_options());
+        const State s0{start_epoch(), (earth::radius + height_m) * x, -2000.0 * x};
+        const EventRun run =
+            simcore::propagate_with_events(dp, g, s0, s0.t + 100.0, {simcore::impact_event()});
+        EXPECT_TRUE(run.terminated);
+        ASSERT_EQ(run.hits.size(), 1u);
+        EXPECT_LT(run.final_state.t - s0.t, 2e-6);
+        // |r| = R to |dr/dt| * 1e-6 s = 2 mm (bound 1 cm, as in the free-fall test).
+        EXPECT_NEAR(run.final_state.r_eci.norm(), earth::radius, 1e-2);
+    }
+}
+
+// The direction filter still applies at the start: on the surface and climbing at 2 km/s is not
+// an impact (g goes 0 -> +), so the run continues to t_end with no hit.
+TEST(Events, StartingOnSurfaceAndClimbingIsNotAnImpact) {
+    PointMassGravity g;
+    DormandPrince54 dp(tight_options());
+    const Eigen::Vector3d x = Eigen::Vector3d::UnitX();
+    const State s0{start_epoch(), earth::radius * x, 2000.0 * x};
+    const EventRun run =
+        simcore::propagate_with_events(dp, g, s0, s0.t + 100.0, {simcore::impact_event()});
+    EXPECT_FALSE(run.terminated);
+    EXPECT_TRUE(run.hits.empty());
+    EXPECT_EQ(run.final_state.t, s0.t + 100.0);
+}
+
+// A root exactly on a step boundary is reported once, at the boundary. We record the segments of
+// a run and put the event g = t - t_b exactly on the end of a mid-run segment. In a second,
+// identical run (deterministic steps) g is exactly 0 at that boundary: the segment ending there
+// sees a rising crossing whose root is its end point, and the next segment starts at g = 0, which
+// crosses() does not count again. One hit, exactly at t_b.
+TEST(Events, RootExactlyOnStepBoundaryIsReportedOnceAtTheBoundary) {
+    PointMassGravity g;
+    const State s0 = eccentric_apoapsis_state();
+    const simcore::Epoch t_end = s0.t + eccentric_period_s();
+    // Non-terminal events don't change the steps, so plain propagate records the same segments.
+    std::vector<simcore::DenseSegment> segs;
+    DormandPrince54 rec(tight_options());
+    (void)rec.propagate(g, s0, t_end, [&segs](const simcore::DenseSegment& seg) {
+        segs.push_back(seg);
+        return simcore::StepAction::kContinue;
+    });
+    ASSERT_GT(segs.size(), 10u);
+    const simcore::Epoch t_b = segs[segs.size() / 2].t_end();
+
+    DormandPrince54 dp(tight_options());
+    const EventRun run = simcore::propagate_with_events(
+        dp, g, s0, t_end,
+        {EventSpec{"clock", [t_b](const State& s) { return s.t - t_b; }, EventDirection::kRising,
+                   false}});
+    ASSERT_EQ(run.hits.size(), 1u);
+    EXPECT_EQ(run.hits[0].state.t, t_b);
+}
+
+// The per-segment root locator, including the guard for a sign change seen on the cached
+// boundary values but not on fresh evaluations (a root on the boundary to roundoff: it happens at
+// ~2 of 600 boundaries, too rarely to force end to end). Offsets dt are from the segment start.
+TEST(EventRootLocator, BracketedRootUsesBrent) {
+    const double dt =
+        simcore::detail::locate_root_in_segment([](double t) { return t - 3.25; }, 10.0, 1e-9);
+    EXPECT_NEAR(dt, 3.25, 1e-9);
+    // Backward segment (h < 0): the root at -3.25 is found too.
+    EXPECT_NEAR(
+        simcore::detail::locate_root_in_segment([](double t) { return t + 3.25; }, -10.0, 1e-9),
+        -3.25, 1e-9);
+}
+
+TEST(EventRootLocator, ExactZeroAtAnEndIsThatEnd) {
+    EXPECT_EQ(
+        simcore::detail::locate_root_in_segment([](double t) { return t - 10.0; }, 10.0, 1e-9),
+        10.0);
+    EXPECT_EQ(simcore::detail::locate_root_in_segment([](double t) { return t; }, 10.0, 1e-9), 0.0);
+}
+
+// No sign change on fresh values: the root is on a boundary to roundoff, so take the end whose
+// |g| is smaller (here g = 1e-20 at the start vs 5 at the end -> start; and the mirror case).
+TEST(EventRootLocator, SameSignAtBothEndsTakesTheEndNearerZero) {
+    EXPECT_EQ(simcore::detail::locate_root_in_segment([](double t) { return 1e-20 + 0.5 * t; },
+                                                      10.0, 1e-9),
+              0.0);
+    EXPECT_EQ(simcore::detail::locate_root_in_segment(
+                  [](double t) { return -5.0 + 0.5 * t - 1e-20; }, 10.0, 1e-9),
+              10.0);
 }
 
 // Backward in time from apoapsis: the previous periapsis is at -T/2. Direction is judged in

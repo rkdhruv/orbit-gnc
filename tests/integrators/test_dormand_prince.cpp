@@ -423,8 +423,7 @@ TEST(DormandPrince54, StatsCountForceEvaluationsWithFsal) {
 TEST(DormandPrince54, AutomaticInitialStepCostsOneExtraEvaluation) {
     // Hairer's starting-step heuristic (Hairer, Norsett & Wanner I, II.4) needs f at t0 and one
     // trial explicit-Euler point f(t0 + h0, y0 + h0 f0) to estimate the second derivative, so the
-    // honest count is 2 + 6 per attempted step. (Interface note: the DpStats comment says
-    // "1 initial"; that holds only for an explicit h_initial_s.)
+    // honest count is 2 + 6 per attempted step (DpStats documents the extra evaluation).
     RecordingGravity g;
     DormandPrince54 dp;  // h_initial_s = 0 -> automatic
     const simcore::State s0 = circular_initial_state();
@@ -569,6 +568,29 @@ TEST(DormandPrince54, ClippedFinalStepShorterThanHMinIsNotACollapse) {
     const Epoch t_short = s0.t + 1e-7;
     EXPECT_NO_THROW(out = dp_auto.propagate(g, s0, t_short));
     EXPECT_EQ(out.t, t_short);
+}
+
+// Stub avoidance (Hairer's rule): when the controller's step reaches within 1% of t_end, the step
+// is stretched to land on t_end instead of leaving a tiny final stub (e.g. 1e-10 s after a 100 s
+// step). Huge tolerances make every step acceptable, so the step count is fixed by h_initial:
+// span 100 (1 + 1e-12) s and 100.5 s -> 1 step; 102 s (2% over) -> 2 steps.
+TEST(DormandPrince54, TinyRemainderIsAbsorbedIntoTheFinalStep) {
+    for (const auto& [span_s, steps] :
+         std::vector<std::pair<double, long>>{{100.0 * (1.0 + 1e-12), 1}, {100.5, 1}, {102.0, 2}}) {
+        SCOPED_TRACE(span_s);
+        DpOptions o;
+        o.rtol = 1.0;
+        o.atol_pos_m = 1e10;
+        o.atol_vel_mps = 1e10;
+        o.h_initial_s = 100.0;
+        o.h_max_s = 100.0;
+        DormandPrince54 dp(o);
+        PointMassGravity g;
+        const simcore::State s0 = circular_initial_state();
+        const simcore::State out = dp.propagate(g, s0, s0.t + span_s);
+        EXPECT_EQ(dp.stats().accepted, steps);
+        EXPECT_EQ(out.t, s0.t + span_s);
+    }
 }
 
 TEST(DormandPrince54, NeverEvaluatesForceOutsideTheSpanEvenForShortSpans) {

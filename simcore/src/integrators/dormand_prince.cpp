@@ -34,7 +34,12 @@ constexpr double d1 = -12715105075.0 / 11282082432.0, d3 = 87487479700.0 / 32700
 
 // Step-size controller: h_new = h * clamp(kSafety * err^(-1/5), kFacMin, kFacMax). The exponent
 // is -1/5 because the error estimate's leading term scales as h^5 (it is the 4th-order error).
+// This is a plain integral (I) controller; Hairer's DOPRI5 code defaults to a PI controller
+// (Lund stabilisation, beta = 0.04) that damps step-size oscillation on stiff-ish stretches.
 constexpr double kSafety = 0.9, kFacMin = 0.2, kFacMax = 5.0;
+// Stub avoidance (as in Hairer's code): a step that would reach within 1% of t_end is stretched
+// to land on it, instead of leaving a tiny final step.
+constexpr double kStretch = 1.01;
 
 Vec6 pack(const Eigen::Vector3d& r, const Eigen::Vector3d& v) {
     Vec6 y;
@@ -136,8 +141,12 @@ State DormandPrince54::propagate(const ForceModel& f, const State& s0, const Epo
 
     while (true) {
         const double remaining_s = t_end - t;
-        // Clip the final step to land on t_end; only an unclipped step can signal collapse.
-        const bool last = h_abs >= std::abs(remaining_s);
+        if (remaining_s * dir <= 0.0) {
+            break;  // defensive: already at (or, by Epoch rounding, past) t_end
+        }
+        // Clip (or stretch by up to 1%) the final step to land on t_end; only a step the
+        // controller chose can signal collapse.
+        const bool last = kStretch * h_abs >= std::abs(remaining_s);
         const double h = last ? remaining_s : dir * h_abs;
         SIMCORE_CHECK(last || h_abs >= opts_.h_min_s, "step size collapsed below h_min_s");
         SIMCORE_CHECK(stats_.accepted + stats_.rejected < opts_.max_steps, "max_steps exceeded");

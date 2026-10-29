@@ -17,11 +17,13 @@ constexpr double kEps = std::numeric_limits<double>::epsilon();
 constexpr int kMaxNewton = 50;
 
 // Newton has converged when the step is down to the noise floor. f is evaluated with an absolute
-// rounding error of a few eps * scale (scale = the size of its largest term), so the attainable
-// step is ~eps * scale / |f'|. When f' is small (e near 1 close to periapsis: f' = 1 - e cos E
-// can be 0.04), that floor sits well above eps |x|, and a test on eps |x| alone never passes.
+// rounding error of a few eps * scale, where scale is the sum of the magnitudes of its terms, so
+// the attainable step is ~eps * scale / |f'|. When f' is small (e near 1 close to periapsis:
+// f' = 1 - e cos E can be 0.04, or 1e-6 at e = 0.999999), that floor sits well above eps |x|,
+// and a test on eps |x| alone never passes. The floor is relative (no max(1, scale)), so small
+// anomalies are found to relative accuracy; at E = 0 exactly the test is 0 <= 0 and still stops.
 bool converged(double step, double scale, double fprime) {
-    return std::abs(step) <= 4.0 * kEps * std::max(1.0, scale) / std::abs(fprime);
+    return std::abs(step) <= 4.0 * kEps * scale / std::abs(fprime);
 }
 
 }  // namespace
@@ -44,7 +46,7 @@ double solve_kepler_elliptic(double M_rad, double e) {
         const double fp = 1.0 - e * std::cos(E);
         const double dE = (E - e * std::sin(E) - Mr) / fp;
         E -= dE;
-        if (converged(dE, std::abs(E) + std::abs(Mr), fp)) {
+        if (converged(dE, std::abs(E) + e * std::abs(std::sin(E)) + std::abs(Mr), fp)) {
             return offset + E;
         }
     }
@@ -66,7 +68,7 @@ double solve_kepler_hyperbolic(double M_rad, double e) {
         const double fp = e * std::cosh(H) - 1.0;
         const double dH = (e * std::sinh(H) - H - M_rad) / fp;
         H -= dH;
-        if (converged(dH, e * std::cosh(H) * std::max(1.0, std::abs(H)), fp)) {
+        if (converged(dH, e * std::abs(std::sinh(H)) + std::abs(H) + std::abs(M_rad), fp)) {
             return H;
         }
     }

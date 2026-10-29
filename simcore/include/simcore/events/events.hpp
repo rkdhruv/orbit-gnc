@@ -46,13 +46,22 @@ struct EventRun {
     bool terminated = false;     // a terminal event ended the run
 };
 
+namespace detail {
+// Offset dt in [0, h] (or [h, 0]) of the root of g_of(dt) on one segment, given that the caller
+// detected a sign change. Brent when the ends bracket a root; otherwise (fresh end values agree in
+// sign: the root is on a boundary to roundoff) the end with the smaller |g|. Exposed for testing.
+double locate_root_in_segment(const std::function<double(double)>& g_of, double h_s,
+                              double time_tol_s);
+}  // namespace detail
+
 // Integrate with dp from s0 to t_end, detecting events on each accepted step's dense output.
 // g is compared at the two ends of each step; a sign change in the requested direction is
 // located with Brent to time_tol_s on g(segment.state_at(t)), at no extra force evaluations.
 // Limitations: two sign changes inside one step cancel and are missed (steps must be short
-// compared with the time between roots); a root within time_tol_s of s0.t is treated as the
-// initial condition and not reported. Throws std::invalid_argument for time_tol_s not finite
-// and > 0, or an event without g.
+// compared with the time between roots). A non-terminal root at s0 to roundoff
+// (|g(s0)| <= 1e-9 s * |dg/dt|) is the initial condition and not reported; terminal roots are
+// never skipped, so chained calls (one per sim tick) can't miss an impact. Throws
+// std::invalid_argument for time_tol_s not finite and > 0, or an event without g.
 EventRun propagate_with_events(DormandPrince54& dp, const ForceModel& f, const State& s0,
                                const Epoch& t_end, const std::vector<EventSpec>& events,
                                double time_tol_s = 1e-6);

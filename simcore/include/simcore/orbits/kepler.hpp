@@ -24,6 +24,11 @@ double true_from_mean_anomaly(double M_rad, double e);
 // Analytic two-body propagation of s0 to epoch t (forward or backward), elliptic or hyperbolic:
 // elements -> M = M0 + n (t - t0) -> solve Kepler -> nu -> state. n = sqrt(mu / |a|^3).
 // Throws std::invalid_argument for the cases elements_from_state rejects (e.g. near-parabolic).
+// Precision: each call converts the state to elements, and a = -mu / (2 energy) loses digits to
+// cancellation (by ~v^2 / (2 |energy|), ~200 at e = 0.99 near periapsis); the resulting
+// semi-major-axis error becomes a phase error growing with n dt (forward and back over 1e4 orbits
+// misses by ~70 m). For "on rails" propagation every tick, keep the elements and M0 at a fixed
+// epoch and propagate from those, rather than calling this on the previous tick's state.
 State kepler_propagate(const State& s0, const Epoch& t, double mu = earth::mu);
 
 }  // namespace simcore
