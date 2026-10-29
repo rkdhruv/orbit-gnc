@@ -1,6 +1,8 @@
 add_library(simcore STATIC
     src/version.cpp
     src/dynamics/point_mass_gravity.cpp
+    src/events/brent.cpp
+    src/events/events.cpp
     src/integrators/dense_output.cpp
     src/integrators/dormand_prince.cpp
     src/integrators/fixed_step.cpp
