@@ -10,6 +10,7 @@ Checks: >
   modernize-*,
   -modernize-use-trailing-return-type,
   -modernize-use-nodiscard,
+  -modernize-use-designated-initializers,
   readability-container-size-empty,
   readability-else-after-return,
   readability-implicit-bool-conversion,
