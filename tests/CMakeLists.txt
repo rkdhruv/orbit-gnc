@@ -5,6 +5,8 @@ add_executable(simcore_tests
     test_check.cpp
     test_constants.cpp
     orbits/test_epoch.cpp
+    orbits/test_elements.cpp
+    orbits/test_kepler.cpp
     dynamics/test_state.cpp
     dynamics/test_point_mass_gravity.cpp
     integrators/test_fixed_step.cpp
