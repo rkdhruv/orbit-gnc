@@ -11,6 +11,8 @@ add_executable(simcore_tests
     dynamics/test_point_mass_gravity.cpp
     dynamics/test_j2_gravity.cpp
     dynamics/test_exponential_drag.cpp
+    dynamics/test_rigid_body.cpp
+    integrators/test_attitude.cpp
     integrators/test_fixed_step.cpp
     events/test_brent.cpp
     events/test_events.cpp

@@ -4,8 +4,10 @@ add_library(simcore STATIC
     src/dynamics/force_sum.cpp
     src/dynamics/j2_gravity.cpp
     src/dynamics/point_mass_gravity.cpp
+    src/dynamics/rigid_body.cpp
     src/events/brent.cpp
     src/events/events.cpp
+    src/integrators/attitude.cpp
     src/integrators/dense_output.cpp
     src/integrators/dormand_prince.cpp
     src/integrators/fixed_step.cpp
