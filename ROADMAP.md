@@ -20,16 +20,18 @@ through the test-first loop in CLAUDE.md.
   - detected periapsis times match Kepler to < 1 ms. This holds at rtol 1e-12; at default tolerances the error passes 1 ms by orbit 10.
 
 ## M2: Perturbations and rigid-body spacecraft
-- [ ] J2 and an exponential-atmosphere drag model as `ForceModel`s
+- [x] J2 and an exponential-atmosphere drag model as `ForceModel`s
   - J2 is needed for realistic LEO from M3 onward; drag for decay and re-entry.
   - Check J2 against the analytic secular RAAN drift, dΩ/dt = −1.5 n J2 (R/p)² cos i.
-- [ ] Quaternion attitude (Hamilton, body-to-inertial), Euler's equations with the gyroscopic term ω × (Iω), inertia tensor
-- [ ] Thrusters with mass flow ṁ = −T/(Isp g₀)
+- [x] Quaternion attitude (Hamilton, body-to-inertial), Euler's equations with the gyroscopic term ω × (Iω), inertia tensor
+- [x] Thrusters with mass flow ṁ = −T/(Isp g₀)
   - Reaction wheels with torque and speed limits, with wheel momentum in Euler's equations: I ω̇ = τ − ω × (Iω + h_w) − ḣ_w.
   - Mass and inertia update as fuel burns; tank at the CoM is a stated assumption.
-- [ ] Coupled 6-DOF integration
-  - A `RigidBodyState` alongside `State`, so the M1 translational API stays unchanged.
-  - Renormalise q after each accepted step and normalise dense-output quaternions.
+- [x] Coupled 6-DOF integration
+  - A `VehicleState` alongside `State`, so the M1 translational API stays unchanged.
+  - Fixed-step RK4 on [r, v, q, w, m_p, h], matching M3's fixed sim tick; q renormalised and m_p
+    clamped after each step; thrusters on or off per step. Dormand-Prince stays for coasting.
+  - Simplifications: no jet damping or I_dot w term; drag keeps its own fixed mass.
 - **Done when:**
   - torque-free spin conserves energy and |H|, and the intermediate-axis tumble appears;
   - a full burn in free space matches the rocket equation (Isp 300 s, m0/mf = 2 → 2,039 m/s);
