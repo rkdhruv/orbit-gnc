@@ -13,7 +13,10 @@ add_library(simcore STATIC
     src/integrators/fixed_step.cpp
     src/orbits/elements.cpp
     src/orbits/epoch.cpp
-    src/orbits/kepler.cpp)
+    src/orbits/kepler.cpp
+    src/vehicle/mass_properties.cpp
+    src/vehicle/reaction_wheel.cpp
+    src/vehicle/thruster.cpp)
 
 target_include_directories(simcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(simcore

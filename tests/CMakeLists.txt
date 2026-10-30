@@ -13,6 +13,8 @@ add_executable(simcore_tests
     dynamics/test_exponential_drag.cpp
     dynamics/test_rigid_body.cpp
     integrators/test_attitude.cpp
+    vehicle/test_mass_and_thrusters.cpp
+    vehicle/test_reaction_wheels.cpp
     integrators/test_fixed_step.cpp
     events/test_brent.cpp
     events/test_events.cpp

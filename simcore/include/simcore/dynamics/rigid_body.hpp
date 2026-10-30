@@ -1,7 +1,5 @@
 #pragma once
 
-#include <utility>
-
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
@@ -69,7 +67,7 @@ protected:
 // A torque fixed in body axes (zero for torque-free motion).
 class ConstantBodyTorque final : public TorqueModel {
 public:
-    explicit ConstantBodyTorque(Eigen::Vector3d torque_body_nm) : tau_(std::move(torque_body_nm)) {}
+    explicit ConstantBodyTorque(const Eigen::Vector3d& torque_body_nm) : tau_(torque_body_nm) {}
     [[nodiscard]] Eigen::Vector3d torque_body(const AttitudeState& /*s*/) const override {
         return tau_;
     }

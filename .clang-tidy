@@ -1,7 +1,8 @@
 ---
 # Bug-finding and modernisation checks. The disabled ones are either style
 # opinions or too noisy for numeric code (magic numbers are everywhere in
-# physics constants and test tolerances; Eigen trips the pointer-arithmetic ones).
+# physics constants and test tolerances; Eigen trips the pointer-arithmetic ones). pass-by-value is
+# off because Eigen recommends passing its types by const reference, and moving them gains nothing.
 Checks: >
   -*,
   bugprone-*,
@@ -11,6 +12,7 @@ Checks: >
   -modernize-use-trailing-return-type,
   -modernize-use-nodiscard,
   -modernize-use-designated-initializers,
+  -modernize-pass-by-value,
   readability-container-size-empty,
   readability-else-after-return,
   readability-implicit-bool-conversion,
