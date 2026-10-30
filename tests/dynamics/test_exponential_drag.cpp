@@ -161,13 +161,15 @@ TEST(ExponentialDrag, RejectsInvalidParameters) {
 // Orbit decay
 // ---------------------------------------------------------------------------------------------
 
-// Circular orbit decay rate (drag only, non-rotating atmosphere): from dE/dt = v . a_drag and
-// E = -mu / (2a), da/dt = -rho B sqrt(mu a). At 400 km with B = 0.022: -4.2596e-3 m/s,
-// i.e. -368.0 m/day. Over one day the orbit drops ~0.37 km, so rho rises by exp(0.368 / 58.5) - 1
-// = 0.63%; to first order the mean rate is 0.31% above the starting rate. We compare the
-// osculating semi-major axis after one day with rate0 * 1.0031 * 86400 s. Tolerance 1%: covers
-// neglected second-order density growth (< 0.01%), osculating-vs-mean a (drag keeps the orbit
-// circular, so the short-period part is ~1e-9 relative) and integrator error (cm).
+// Circular orbit decay (drag only, non-rotating atmosphere): from dE/dt = v . a_drag and
+// E = -mu / (2a), da/dt = -rho B sqrt(mu a), B = Cd A / m = 0.022 m^2/kg. The orbit starts at
+// exactly 400 km and sinks straight into the 350-400 km band (H = 53.298 km), where the density
+// is rho_s = 9.518e-12 exp(-50 / 53.298) = 0.9999964 * 3.725e-12.
+// With sqrt(mu a) held at its start value, dh/dt = -k exp((h_s - h) / H), k = rho_s B sqrt(mu a0),
+// integrates to dh = -H ln(1 - k T / H). k T = 368.03 m over T = 1 day, so dh = -369.31 m, 0.35%
+// more than the starting rate predicts. Neglected: the fall of sqrt(a) (1.4e-5 relative, from a
+// numerical solution of the full ODE), the osculating-vs-mean difference (drag keeps the orbit
+// circular, ~1e-9) and integrator error (cm, < 1e-6). Tolerance 1e-3.
 TEST(ExponentialDrag, CircularOrbitDecayMatchesAnalyticRate) {
     const double a0 = earth::radius + 400.0e3;
     const State s0 = state_from(a0, 0.0, 51.6 * kDeg, 30.0 * kDeg, 0.0, 0.0);
@@ -180,8 +182,13 @@ TEST(ExponentialDrag, CircularOrbitDecayMatchesAnalyticRate) {
     o.atol_vel_mps = 1e-9;
     simcore::DormandPrince54 dp(o);
     const State s1 = dp.propagate(f, s0, s0.t + 86400.0);
-    const double rate0 = -3.725e-12 * 0.022 * std::sqrt(earth::mu * a0);
-    EXPECT_NEAR(rate0 * 86400.0, -368.03, 0.01);  // hand value
+    const double H = 53.298e3;
+    const double rho_s = 9.518e-12 * std::exp(-50.0e3 / H);
+    EXPECT_NEAR(rho_s / 3.725e-12, 0.9999964, 1e-7);  // hand value
+    const double kT = rho_s * 0.022 * std::sqrt(earth::mu * a0) * 86400.0;
+    EXPECT_NEAR(kT, 368.03, 0.01);  // hand value
+    const double dh = -H * std::log(1.0 - kT / H);
+    EXPECT_NEAR(dh, 369.31, 0.01);  // hand value
     const double da = simcore::elements_from_state(s1).a_m - a0;
-    EXPECT_NEAR(da / (rate0 * 1.0031 * 86400.0), 1.0, 0.01);
+    EXPECT_NEAR(da / -dh, 1.0, 1e-3);
 }

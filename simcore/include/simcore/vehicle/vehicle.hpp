@@ -13,7 +13,8 @@
 namespace simcore {
 
 // What the vehicle is made of. Thruster positions are relative to the centre of mass, which the
-// tank model keeps fixed.
+// tank model keeps fixed. The dry inertia in `mass` includes every wheel's full (locked) inertia;
+// the wheel equations subtract each wheel's spin-axis part (see reaction_wheel.hpp).
 struct VehicleConfig {
     MassProperties mass;
     std::vector<Thruster> thrusters;

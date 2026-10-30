@@ -19,6 +19,8 @@ public:
 
     // Density at altitude h: rho0 exp(-(h - h0) / H) in the band with base h0 <= h. Below 0 km the
     // first band and above 1000 km the last band are extrapolated. Throws for non-finite h.
+    // The sub-zero extrapolation grows as exp(|h| / 7.249 km) and overflows to inf below about
+    // -5,100 km: stop propagation at impact (impact_event) before the trajectory goes underground.
     [[nodiscard]] static double density_kgpm3(double altitude_m);
 
     [[nodiscard]] Eigen::Vector3d acceleration_eci(const State& s) const override;

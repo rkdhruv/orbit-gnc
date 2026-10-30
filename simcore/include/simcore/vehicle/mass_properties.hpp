@@ -20,8 +20,9 @@ struct PropellantTank {
 class MassProperties {
 public:
     // Throws std::invalid_argument unless dry mass and capacity are finite and > 0, the dry
-    // inertia is a valid rigid-body tensor and the full-tank inertia is symmetric positive
-    // semi-definite.
+    // inertia is a valid rigid-body tensor and the full-tank inertia is symmetric (to 1e-12
+    // relative) and physically realisable: principal moments >= 0, each at most the sum of the
+    // other two (zero is allowed: a point mass at the CoM). Both tensors are stored symmetrised.
     MassProperties(double dry_mass_kg, const Eigen::Matrix3d& dry_inertia_kgm2,
                    const PropellantTank& tank);
 

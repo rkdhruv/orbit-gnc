@@ -3,6 +3,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include "simcore/dynamics/state.hpp"
 #include "simcore/orbits/epoch.hpp"
 
 namespace simcore {
@@ -50,11 +51,15 @@ Eigen::Quaterniond quaternion_rate(const Eigen::Quaterniond& q_body_to_eci,
                                    const Eigen::Vector3d& w_body);
 
 // A source of torque on a rigid body, in body axes. All torques enter attitude propagation
-// through this (the rotational counterpart of ForceModel).
+// through this (the rotational counterpart of ForceModel). It sees the translational state as
+// well as the attitude, since the usual disturbance torques depend on position and velocity
+// (gravity gradient 3 mu / r^3 r_b x I r_b, aerodynamic, magnetic). Both arguments carry the
+// same t.
 class TorqueModel {
 public:
     virtual ~TorqueModel() = default;
-    [[nodiscard]] virtual Eigen::Vector3d torque_body(const AttitudeState& s) const = 0;
+    [[nodiscard]] virtual Eigen::Vector3d torque_body(const State& orbit,
+                                                      const AttitudeState& att) const = 0;
 
 protected:
     TorqueModel() = default;
@@ -68,7 +73,8 @@ protected:
 class ConstantBodyTorque final : public TorqueModel {
 public:
     explicit ConstantBodyTorque(const Eigen::Vector3d& torque_body_nm) : tau_(torque_body_nm) {}
-    [[nodiscard]] Eigen::Vector3d torque_body(const AttitudeState& /*s*/) const override {
+    [[nodiscard]] Eigen::Vector3d torque_body(const State& /*orbit*/,
+                                              const AttitudeState& /*att*/) const override {
         return tau_;
     }
 

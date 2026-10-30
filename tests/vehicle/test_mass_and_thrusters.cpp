@@ -67,12 +67,36 @@ TEST(MassProperties, RejectsInvalidInput) {
     EXPECT_THROW((void)MassProperties(0.0, I, tank), std::invalid_argument);
     EXPECT_THROW((void)MassProperties(500.0, I, PropellantTank{-1.0, tank.inertia_full_kgm2}),
                  std::invalid_argument);
-    // Tank inertia must itself be a physical (symmetric PSD) tensor.
+    // Tank inertia must itself be physically realisable. For any mass distribution
+    // I = integral (r^2 1 - r r^T) dm, so S = 1/2 tr(I) 1 - I = integral r r^T dm is positive
+    // semi-definite; equivalently each principal moment is >= 0 and <= the sum of the other two.
+    // diag(-1, 1, 1): negative moment. diag(0, 0, 1000): PSD, but 1000 > 0 + 0 (S has -500).
     EXPECT_THROW((void)MassProperties(
                      500.0, I, PropellantTank{300.0, Eigen::Vector3d(-1.0, 1.0, 1.0).asDiagonal()}),
                  std::invalid_argument);
+    EXPECT_THROW(
+        (void)MassProperties(500.0, I,
+                             PropellantTank{300.0, Eigen::Vector3d(0.0, 0.0, 1000.0).asDiagonal()}),
+        std::invalid_argument);
+    // A thin rod along z, diag(10, 10, 0), is the limiting physical case (S = diag(0, 0, 10)).
+    EXPECT_NO_THROW((void)MassProperties(
+        500.0, I, PropellantTank{300.0, Eigen::Vector3d(10.0, 10.0, 0.0).asDiagonal()}));
     // An empty-capable tank with zero inertia is fine (a point mass at the CoM).
     EXPECT_NO_THROW((void)MassProperties(500.0, I, PropellantTank{300.0, Eigen::Matrix3d::Zero()}));
+}
+
+// Inputs within the 1e-12 symmetry tolerance are stored symmetrised, so I(m_p) is exactly symmetric
+// (Cholesky-style solvers read one triangle while H = I w uses both).
+TEST(MassProperties, StoresSymmetrisedTensors) {
+    Eigen::Matrix3d dry = Eigen::Vector3d(100.0, 150.0, 200.0).asDiagonal();
+    dry(0, 1) = 1.0;
+    dry(1, 0) = 1.0 + 1e-13;
+    Eigen::Matrix3d tank = Eigen::Vector3d(30.0, 30.0, 20.0).asDiagonal();
+    tank(1, 2) = 0.5;
+    tank(2, 1) = 0.5 - 1e-14;
+    const MassProperties mp(500.0, dry, PropellantTank{300.0, tank});
+    const Eigen::Matrix3d I = mp.inertia_kgm2(120.0);
+    EXPECT_EQ(I, I.transpose());
 }
 
 // ---------------------------------------------------------------------------------------------

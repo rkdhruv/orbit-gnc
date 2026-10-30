@@ -95,9 +95,10 @@ TEST(SixDof, FullBurnMatchesRocketEquation) {
     EXPECT_LE(s.w_body.norm(), 1e-15);  // thrust through the CoM: no torque
 }
 
-// Burning past burnout: thrust stops when the tank is empty and never drives m_p negative. With a
-// fixed step the cutoff falls inside a step, so the step containing burnout carries at most one
-// step of extra thrust: |dv error| <= (T / m_f) h = (1000 / 400) * 0.1 = 0.25 m/s.
+// Burning past burnout: thrust stops when the tank is empty and never drives m_p negative. The
+// cutoff (t_b = 1176.798 s) falls inside a step; that step's throttle is scaled by
+// f = m_p / (m_dot h) so it expels exactly the propellant left. The rocket equation depends only on
+// the mass ratio, so the total dv is still v_e ln 2 to roundoff (as in the full-burn test): 1e-6.
 // After burnout v is constant (no forces): bit-identical between t = 1190 s and 1200 s.
 TEST(SixDof, ThrustStopsAtBurnoutAndPropellantNeverGoesNegative) {
     const VehicleConfig cfg{
@@ -119,7 +120,93 @@ TEST(SixDof, ThrustStopsAtBurnoutAndPropellantNeverGoesNegative) {
     EXPECT_EQ(a.propellant_kg, 0.0);
     EXPECT_EQ(b.propellant_kg, 0.0);
     EXPECT_EQ(b.v_eci, a.v_eci);
-    EXPECT_NEAR(b.v_eci.x(), 300.0 * simcore::g0 * std::log(2.0), 0.25);
+    EXPECT_NEAR(b.v_eci.x(), 300.0 * simcore::g0 * std::log(2.0), 1e-6);
+}
+
+// Burnout at coarse ticks. h = 1 s: burnout falls 0.8 s into a step, which at full thrust for the
+// whole step would add (T / m_f) * 0.2 s = 0.5 m/s. h_max = 0.2 s, ending exactly at t_b: roundoff
+// can leave ~1e-11 kg in the tank, and one more full-thrust tick would add 0.5 m/s. With the
+// throttle scaled to the propellant left, both give v_e ln 2 to roundoff (bound 1e-6, as above)
+// and leave the tank exactly empty.
+TEST(SixDof, BurnoutAtCoarseTicksDeliversNoExtraDeltaV) {
+    const VehicleConfig cfg{
+        mass_400_400(),
+        {Thruster(1000.0, 300.0, Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitX())},
+        {}};
+    const VehicleState s0{kT0,
+                          Eigen::Vector3d::Zero(),
+                          Eigen::Vector3d::Zero(),
+                          Eigen::Quaterniond::Identity(),
+                          Eigen::Vector3d::Zero(),
+                          400.0,
+                          {}};
+    const VehicleCommand burn{{1.0}, {}};
+    const double ve = 300.0 * simcore::g0;
+    const double tb = 400.0 / (1000.0 / ve);
+
+    const VehicleState coarse =
+        simcore::propagate_six_dof(cfg, kFreeSpace, kNoTorque, burn, s0, kT0 + 1200.0, 1.0);
+    EXPECT_NEAR(coarse.v_eci.x(), ve * std::log(2.0), 1e-6);
+    EXPECT_EQ(coarse.propellant_kg, 0.0);
+
+    const VehicleState at_tb =
+        simcore::propagate_six_dof(cfg, kFreeSpace, kNoTorque, burn, s0, kT0 + tb, 0.2);
+    const VehicleState next =
+        simcore::propagate_six_dof(cfg, kFreeSpace, kNoTorque, burn, at_tb, at_tb.t + 0.2, 0.2);
+    EXPECT_NEAR(next.v_eci.x(), ve * std::log(2.0), 1e-6);
+    EXPECT_EQ(next.propellant_kg, 0.0);
+}
+
+// Backward propagation with thrust would refill the tank (and an empty tank could never relight),
+// so it is not the inverse of forward flight: rejected. Coasting backward is allowed.
+TEST(SixDof, BackwardPropagationWithThrustIsRejected) {
+    const VehicleConfig cfg{
+        mass_400_400(),
+        {Thruster(10.0, 300.0, Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitX())},
+        {}};
+    const VehicleState s0{kT0,
+                          Eigen::Vector3d::Zero(),
+                          Eigen::Vector3d(1.0, 0.0, 0.0),
+                          Eigen::Quaterniond::Identity(),
+                          Eigen::Vector3d::Zero(),
+                          200.0,
+                          {}};
+    EXPECT_THROW((void)simcore::propagate_six_dof(cfg, kFreeSpace, kNoTorque,
+                                                  VehicleCommand{{0.5}, {}}, s0, kT0 - 10.0, 0.1),
+                 std::invalid_argument);
+    const VehicleState back = simcore::propagate_six_dof(
+        cfg, kFreeSpace, kNoTorque, VehicleCommand{{0.0}, {}}, s0, kT0 - 10.0, 0.1);
+    EXPECT_NEAR(back.r_eci.x(), -10.0, 1e-13);
+}
+
+// Position-dependent torque (the shape of gravity-gradient or aero torques): the torque model gets
+// the stage's translational state with the same t as the attitude. Free space, r = (10 t, 0, 0) m,
+// tau_z = 1e-3 r_x N m about principal axis z (I_zz = 200): w_z = 1e-3 * 10 t^2 / (2 * 200)
+// = 2.5e-5 t^2 = 2.5e-3 rad/s at t = 10 s. r is linear and w_dot is linear in t, so RK4 is exact:
+// roundoff only, ~1000 steps * eps * 2.5e-3 = 6e-16; bound 2e-15.
+TEST(SixDof, TorqueModelSeesTheTranslationalState) {
+    struct PositionTorque final : simcore::TorqueModel {
+        [[nodiscard]] Eigen::Vector3d torque_body(
+            const simcore::State& orbit, const simcore::AttitudeState& att) const override {
+            if (orbit.t != att.t) {
+                return Eigen::Vector3d::Constant(std::numeric_limits<double>::quiet_NaN());
+            }
+            return Eigen::Vector3d(0.0, 0.0, 1e-3 * orbit.r_eci.x());
+        }
+    };
+    const VehicleConfig cfg{mass_400_400(), {}, {}};
+    const VehicleState s0{kT0,
+                          Eigen::Vector3d::Zero(),
+                          Eigen::Vector3d(10.0, 0.0, 0.0),
+                          Eigen::Quaterniond::Identity(),
+                          Eigen::Vector3d::Zero(),
+                          200.0,
+                          {}};
+    const VehicleState s = simcore::propagate_six_dof(cfg, kFreeSpace, PositionTorque{},
+                                                      VehicleCommand{{}, {}}, s0, kT0 + 10.0, 0.01);
+    EXPECT_NEAR(s.w_body.z(), 2.5e-3, 2e-15);
+    EXPECT_EQ(s.w_body.x(), 0.0);
+    EXPECT_EQ(s.w_body.y(), 0.0);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -192,9 +279,11 @@ TEST(SixDof, WheelSaturatesAtItsSpeedLimit) {
 }
 
 // Three skewed wheels, a tumbling body and arbitrary motor commands, no external torque: the total
-// inertial angular momentum R(q) (I_s w + sum h a) is conserved. Rates ~0.3 rad/s, h = 0.05 s,
-// 100 s: RK4 attitude error ~ steps * 2 (0.3 * 0.05 / 2)^5 / 120 ~ 4e-13; bound 1e-9 relative
-// (allowing for the wheel-coupled dynamics being stiffer than the bare body).
+// inertial angular momentum R(q) (I_s w + sum h a) is conserved. |w| ~ 0.37 rad/s, h = 0.05 s,
+// 2000 steps. A pessimistic a-priori estimate treats the whole attitude phase error as a rotation
+// of H: 2000 * 2 (0.37 * 0.05 / 2)^5 / 120 = 2.3e-9 rad. Most of that error is a phase lag about H
+// itself, which leaves R(q) H_body unchanged, so the real drift is far smaller: measured 1.6e-10
+// relative. The 1e-9 bound is measurement-backed (6x margin), not derived.
 TEST(SixDof, WheelsConserveTotalInertialAngularMomentum) {
     const VehicleConfig cfg{mass_400_400(),
                             {},
@@ -240,7 +329,7 @@ TEST(SixDof, CoastReducesToOrbitAndAttitudePropagators) {
     const simcore::State o =
         simcore::propagate_fixed(g, orbit0, t_end, 1.0, simcore::FixedStepMethod::kRk4);
     const simcore::AttitudeState a = simcore::propagate_attitude(
-        cfg.mass.rigid_body(100.0), kNoTorque,
+        cfg.mass.rigid_body(100.0), kNoTorque, orbit0,
         simcore::AttitudeState{orbit0.t, s0.q_body_to_eci, s0.w_body}, t_end, 1.0);
     EXPECT_LE((s.r_eci - o.r_eci).norm(), 1e-12 * o.r_eci.norm());
     EXPECT_LE((s.v_eci - o.v_eci).norm(), 1e-12 * o.v_eci.norm());

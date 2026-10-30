@@ -40,12 +40,12 @@ void validate(const VehicleConfig& cfg, const VehicleCommand& cmd, const Vehicle
     (void)cfg.mass.mass_kg(s.propellant_kg);  // propellant in [0, capacity]
 }
 
-// y' at (t, y). Whether the thrusters fire is decided once per step (`burning`, from the propellant
-// at the start of the step), not per RK stage: a stage evaluated exactly at burnout would otherwise
-// see an empty tank and drop a sixth of the step's thrust. Stage values of m_p can dip just below 0
-// in the step containing burnout; mass properties are evaluated at max(m_p, 0).
+// y' at (t, y). The throttle scale f is decided once per step (from the propellant at its start),
+// not per RK stage: a stage evaluated at burnout would otherwise see an empty tank and drop a sixth
+// of the step's thrust. Stage values of m_p can dip a roundoff below 0 in the burnout step; mass
+// properties are evaluated at m_p clamped to [0, capacity].
 Y rate(const VehicleConfig& cfg, const ForceModel& env_accel, const TorqueModel& env_torque,
-       const VehicleCommand& cmd, bool burning, const Epoch& t, const Y& y) {
+       const VehicleCommand& cmd, double throttle_scale, const Epoch& t, const Y& y) {
     const double mp = std::clamp(y.mp, 0.0, cfg.mass.capacity_kg());
     const double m = cfg.mass.mass_kg(mp);
     const Eigen::Matrix3d I = cfg.mass.inertia_kgm2(mp);
@@ -54,7 +54,7 @@ Y rate(const VehicleConfig& cfg, const ForceModel& env_accel, const TorqueModel&
     Eigen::Vector3d tau_thrust = Eigen::Vector3d::Zero();
     double mdot = 0.0;
     for (std::size_t i = 0; i < cfg.thrusters.size(); ++i) {
-        const double u = burning ? cmd.throttle[i] : 0.0;
+        const double u = throttle_scale * cmd.throttle[i];
         f_body += cfg.thrusters[i].force_body_n(u);
         tau_thrust += cfg.thrusters[i].torque_body_nm(u);
         mdot += cfg.thrusters[i].mass_flow_kgps(u);
@@ -62,10 +62,11 @@ Y rate(const VehicleConfig& cfg, const ForceModel& env_accel, const TorqueModel&
 
     const Eigen::Quaterniond q_raw(y.q);
     const Eigen::Quaterniond q_unit = q_raw.normalized();
+    const State orbit{t, y.r, y.v};
     const Eigen::Vector3d accel =
-        env_accel.acceleration_eci(State{t, y.r, y.v}) + q_unit.toRotationMatrix() * f_body / m;
+        env_accel.acceleration_eci(orbit) + q_unit.toRotationMatrix() * f_body / m;
     const Eigen::Vector3d tau_ext =
-        env_torque.torque_body(AttitudeState{t, q_unit, y.w}) + tau_thrust;
+        env_torque.torque_body(orbit, AttitudeState{t, q_unit, y.w}) + tau_thrust;
 
     std::vector<double> tau_motor(cfg.wheels.size());
     for (std::size_t j = 0; j < cfg.wheels.size(); ++j) {
@@ -88,14 +89,23 @@ VehicleState six_dof_rk4_step(const VehicleConfig& cfg, const ForceModel& env_ac
                               const TorqueModel& env_torque, const VehicleCommand& cmd,
                               const VehicleState& s, double h_s) {
     validate(cfg, cmd, s);
+    // Propellant the commanded throttles would use over the step (m_dot is linear in throttle).
+    double mdot_cmd = 0.0;
+    for (std::size_t i = 0; i < cfg.thrusters.size(); ++i) {
+        mdot_cmd += cfg.thrusters[i].mass_flow_kgps(cmd.throttle[i]);
+    }
+    SIMCORE_CHECK(h_s >= 0.0 || mdot_cmd == 0.0, "backward 6-DOF steps can't thrust");
+    const double need_kg = mdot_cmd * h_s;
+    // Burnout step: scale all throttles so the step expels exactly the propellant left.
+    const bool burnout = need_kg > s.propellant_kg;
+    const double f = burnout ? s.propellant_kg / need_kg : 1.0;
+
     const double half = 0.5 * h_s;
     const Y y{s.r_eci, s.v_eci, s.q_body_to_eci.coeffs(), s.w_body, s.propellant_kg, s.wheel_h_nms};
-    const bool burning = s.propellant_kg > 0.0;  // thrusters fire for the whole step, or not at all
-
-    const Y k1 = rate(cfg, env_accel, env_torque, cmd, burning, s.t, y);
-    const Y k2 = rate(cfg, env_accel, env_torque, cmd, burning, s.t + half, axpy(y, half, k1));
-    const Y k3 = rate(cfg, env_accel, env_torque, cmd, burning, s.t + half, axpy(y, half, k2));
-    const Y k4 = rate(cfg, env_accel, env_torque, cmd, burning, s.t + h_s, axpy(y, h_s, k3));
+    const Y k1 = rate(cfg, env_accel, env_torque, cmd, f, s.t, y);
+    const Y k2 = rate(cfg, env_accel, env_torque, cmd, f, s.t + half, axpy(y, half, k1));
+    const Y k3 = rate(cfg, env_accel, env_torque, cmd, f, s.t + half, axpy(y, half, k2));
+    const Y k4 = rate(cfg, env_accel, env_torque, cmd, f, s.t + h_s, axpy(y, h_s, k3));
 
     // y1 = y + h/6 (k1 + 2 k2 + 2 k3 + k4), written per component in the same order as rk4_step
     // so the uncoupled case reproduces the orbit propagator to roundoff.
@@ -108,8 +118,9 @@ VehicleState six_dof_rk4_step(const VehicleConfig& cfg, const ForceModel& env_ac
         Eigen::Quaterniond(Eigen::Vector4d(y.q + c * (k1.q + 2.0 * k2.q + 2.0 * k3.q + k4.q)))
             .normalized();
     out.w_body = y.w + c * (k1.w + 2.0 * k2.w + 2.0 * k3.w + k4.w);
-    // Clamp: the step that contains burnout can overshoot the empty tank slightly.
-    out.propellant_kg = std::max(0.0, y.mp + c * (k1.mp + 2.0 * k2.mp + 2.0 * k3.mp + k4.mp));
+    // The burnout step empties the tank exactly (the sum differs from 0 only by roundoff).
+    out.propellant_kg =
+        burnout ? 0.0 : std::max(0.0, y.mp + c * (k1.mp + 2.0 * k2.mp + 2.0 * k3.mp + k4.mp));
     out.wheel_h_nms = y.h;
     for (std::size_t j = 0; j < y.h.size(); ++j) {
         out.wheel_h_nms[j] += c * (k1.h[j] + 2.0 * k2.h[j] + 2.0 * k3.h[j] + k4.h[j]);

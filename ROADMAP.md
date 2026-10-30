@@ -10,7 +10,7 @@ through the test-first loop in CLAUDE.md.
 - [x] clang-format, clang-tidy, `-ffp-contract=off`; CI on macOS arm64 + Linux + ASan/UBSan
 - **Done when:** CI green on both platforms with one trivial test.
 
-## M1: Translational core
+## M1: Translational core (done)
 - [x] `State`, `Epoch` (int64 s + fraction, TT), `ForceModel`; point-mass gravity
 - [x] Velocity Verlet, RK4, adaptive Dormand–Prince 5(4) with dense output
 - [x] Event detection with Brent root-finding: periapsis, impact, altitude crossing
@@ -19,13 +19,14 @@ through the test-first loop in CLAUDE.md.
   - analytic and numerical propagation agree over 100 orbits (e = 0.7: < 25 m at rtol 1e-12);
   - detected periapsis times match Kepler to < 1 ms. This holds at rtol 1e-12; at default tolerances the error passes 1 ms by orbit 10.
 
-## M2: Perturbations and rigid-body spacecraft
+## M2: Perturbations and rigid-body spacecraft (done)
 - [x] J2 and an exponential-atmosphere drag model as `ForceModel`s
   - J2 is needed for realistic LEO from M3 onward; drag for decay and re-entry.
   - Check J2 against the analytic secular RAAN drift, dΩ/dt = −1.5 n J2 (R/p)² cos i.
 - [x] Quaternion attitude (Hamilton, body-to-inertial), Euler's equations with the gyroscopic term ω × (Iω), inertia tensor
 - [x] Thrusters with mass flow ṁ = −T/(Isp g₀)
-  - Reaction wheels with torque and speed limits, with wheel momentum in Euler's equations: I ω̇ = τ − ω × (Iω + h_w) − ḣ_w.
+  - Reaction wheels with torque and speed limits. Each wheel's state is its absolute axial momentum h = J(Ω + a·ω), so ḣ = τ_m exactly,
+    and Euler's equations become I_s ω̇ = τ − ω × (I_s ω + Σ h a) − Σ τ_m a, with I_s = I − Σ J a aᵀ.
   - Mass and inertia update as fuel burns; tank at the CoM is a stated assumption.
 - [x] Coupled 6-DOF integration
   - A `VehicleState` alongside `State`, so the M1 translational API stays unchanged.
