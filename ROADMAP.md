@@ -39,7 +39,7 @@ through the test-first loop in CLAUDE.md.
   - J2 RAAN drift matches the analytic rate.
 
 ## M3: Interactive front end
-- [ ] Sim facade: fixed-timestep sim loop decoupled from the frame rate
+- [x] Sim facade: fixed-timestep sim loop decoupled from the frame rate
   - `simapp` sends commands through a queue and reads snapshots.
   - It never touches internals; this is the architecture rule made concrete.
 - [ ] raylib 3D scene: Earth, spacecraft model with attitude, orbit line

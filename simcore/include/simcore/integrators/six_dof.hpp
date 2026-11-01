@@ -24,6 +24,12 @@ namespace simcore {
 // env_accel supplies environment accelerations (gravity, drag) from State{t, r, v}; env_torque
 // supplies external torques from the same State and the attitude.
 
+// Input checks shared by the propagator and the sim facade; both throw std::invalid_argument.
+// Command: one throttle in [0, 1] per thruster and one wheel torque per wheel.
+void validate_command(const VehicleConfig& cfg, const VehicleCommand& cmd);
+// State: one wheel momentum per wheel and propellant in [0, capacity].
+void validate_vehicle_state(const VehicleConfig& cfg, const VehicleState& s);
+
 // One RK4 step of size h_s. Inputs are validated as in propagate_six_dof.
 VehicleState six_dof_rk4_step(const VehicleConfig& cfg, const ForceModel& env_accel,
                               const TorqueModel& env_torque, const VehicleCommand& cmd,

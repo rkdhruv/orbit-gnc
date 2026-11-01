@@ -30,14 +30,8 @@ Y axpy(const Y& y, double c, const Y& k) {
 }
 
 void validate(const VehicleConfig& cfg, const VehicleCommand& cmd, const VehicleState& s) {
-    SIMCORE_CHECK(cmd.throttle.size() == cfg.thrusters.size(), "one throttle per thruster");
-    SIMCORE_CHECK(cmd.wheel_torque_nm.size() == cfg.wheels.size(),
-                  "one wheel torque command per wheel");
-    SIMCORE_CHECK(s.wheel_h_nms.size() == cfg.wheels.size(), "one wheel momentum per wheel");
-    for (const double u : cmd.throttle) {
-        SIMCORE_CHECK(u >= 0.0 && u <= 1.0, "throttle must be in [0, 1]");
-    }
-    (void)cfg.mass.mass_kg(s.propellant_kg);  // propellant in [0, capacity]
+    validate_command(cfg, cmd);
+    validate_vehicle_state(cfg, s);
 }
 
 // y' at (t, y). The throttle scale f is decided once per step (from the propellant at its start),
@@ -84,6 +78,20 @@ Y rate(const VehicleConfig& cfg, const ForceModel& env_accel, const TorqueModel&
 }
 
 }  // namespace
+
+void validate_command(const VehicleConfig& cfg, const VehicleCommand& cmd) {
+    SIMCORE_CHECK(cmd.throttle.size() == cfg.thrusters.size(), "one throttle per thruster");
+    SIMCORE_CHECK(cmd.wheel_torque_nm.size() == cfg.wheels.size(),
+                  "one wheel torque command per wheel");
+    for (const double u : cmd.throttle) {
+        SIMCORE_CHECK(u >= 0.0 && u <= 1.0, "throttle must be in [0, 1]");  // NaN fails too
+    }
+}
+
+void validate_vehicle_state(const VehicleConfig& cfg, const VehicleState& s) {
+    SIMCORE_CHECK(s.wheel_h_nms.size() == cfg.wheels.size(), "one wheel momentum per wheel");
+    (void)cfg.mass.mass_kg(s.propellant_kg);  // propellant in [0, capacity]
+}
 
 VehicleState six_dof_rk4_step(const VehicleConfig& cfg, const ForceModel& env_accel,
                               const TorqueModel& env_torque, const VehicleCommand& cmd,

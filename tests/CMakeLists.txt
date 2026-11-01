@@ -20,7 +20,9 @@ add_executable(simcore_tests
     events/test_brent.cpp
     events/test_events.cpp
     integrators/test_dormand_prince.cpp
-    integrators/test_dense_output.cpp)
+    integrators/test_dense_output.cpp
+    sim/test_tick_scheduler.cpp
+    sim/test_simulation.cpp)
 target_link_libraries(simcore_tests PRIVATE simcore GTest::gtest_main orbit_warnings)
 
 gtest_discover_tests(simcore_tests)
