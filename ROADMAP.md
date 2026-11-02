@@ -57,8 +57,9 @@ through the test-first loop in CLAUDE.md.
   - Native and wasm need not match bit-for-bit; see the Eigen FMA note in CLAUDE.md.
 
 ## M4: Attitude control and autopilot
-- [ ] PD attitude controller on the quaternion error, then LQR linearised about the hold attitude
-  - Hold modes: prograde, retrograde, normal, radial.
+- [x] PD attitude controller on the quaternion error, with gyroscopic compensation
+  - Hold modes: prograde, retrograde, normal, antinormal, radial out, radial in.
+- [ ] LQR linearised about the hold attitude
 - [ ] Wheel momentum management: desaturation with thrusters when wheels approach their limit
 - [ ] Maneuver nodes with the predicted post-burn orbit
   - The autopilot executes them: point, wait, burn centred on the node, cut off on achieved Δv.

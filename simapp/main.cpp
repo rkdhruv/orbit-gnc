@@ -20,6 +20,7 @@
 #include "simcore/dynamics/force_sum.hpp"
 #include "simcore/dynamics/j2_gravity.hpp"
 #include "simcore/dynamics/point_mass_gravity.hpp"
+#include "simcore/gnc/attitude_control.hpp"
 #include "simcore/orbits/elements.hpp"
 #include "simcore/sim/manual_control.hpp"
 #include "simcore/sim/replay.hpp"
@@ -133,10 +134,22 @@ simcore::Telemetry update_sim(App& app, double frame_dt) {
     }
     const simcore::VehicleConfig& vehicle = app.sim.config().vehicle;
     const simcore::ManualInput input = app.controls.input();
+    // The control law for this frame: an attitude hold if one is on (and the rotate keys are
+    // idle and there is an orbit frame), otherwise manual flight with optional rate damping.
+    const std::optional<simcore::HoldMode> hold = app.controls.hold();
+    const simcore::ControlLaw law = [&vehicle, input, hold](const simcore::VehicleState& s) {
+        const bool has_frame =
+            s.r_eci.cross(s.v_eci).norm() > 1e-12 * s.r_eci.norm() * s.v_eci.norm();
+        if (hold && input.rotate == Eigen::Vector3d::Zero() && has_frame) {
+            return simcore::attitude_command(
+                vehicle, s, simcore::hold_target(*hold, simcore::State{s.t, s.r_eci, s.v_eci}),
+                simapp::kHoldGains, input.throttle);
+        }
+        return simcore::manual_command(vehicle, input, s);
+    };
     // Fast warp only if the next tick would be a rails coast (coasting, not rotating, a conic
     // orbit clear of the surface, two-body environment); otherwise integration's limit.
-    const bool can_rail =
-        app.sim.would_rail(simcore::manual_command(vehicle, input, app.sim.snapshot().state));
+    const bool can_rail = app.sim.would_rail(law(app.sim.snapshot().state));
     app.controls.clamp_warp(can_rail ? simapp::kWarpLevels.back() : simapp::kMaxIntegratedWarp);
 
     const simcore::TickScheduler::FrameTicks ft =
@@ -147,9 +160,9 @@ simcore::Telemetry update_sim(App& app, double frame_dt) {
         ticks = simapp::kMaxIntegratedTicksPerFrame;
         app.fell_behind = true;
     }
-    // Recomputes the command at least every kManualHoldMax_s, so damping stays stable at any
-    // frame rate and warp.
-    simcore::fly_manual(app.sim, input, ticks);
+    // Recomputes the command at least every kManualHoldMax_s, so damping and holds stay stable at
+    // any frame rate and warp.
+    simcore::fly_with(app.sim, law, ticks);
     if (app.sim.snapshot().impacted) {
         throw std::runtime_error("impact: the vehicle hit the surface (altitude below 0 km)");
     }
@@ -200,13 +213,19 @@ void UpdateDrawFrame() {
                   simapp::HudFrame{snap.state.t - app.t0, snap.tick, app.scene.camera_distance_m(),
                                    GetFPS(), app.fell_behind, app.controls.warp(),
                                    app.controls.throttle(), app.controls.rate_damping(),
-                                   snap.on_rails, app.j2, app.replay_status.c_str()})
+                                   app.controls.hold(), snap.on_rails, app.j2,
+                                   app.replay_status.c_str()})
             : draw_error(app.error, app.j2);
     rlImGuiEnd();
 
     EndDrawing();
 
-    if (action == simapp::HudAction::kVerifyReplay) {
+    if (action >= simapp::HudAction::kHoldOff) {
+        const auto i = static_cast<int>(action) - static_cast<int>(simapp::HudAction::kHoldOff);
+        app.controls.set_hold(
+            i == 0 ? std::nullopt
+                   : std::optional<simcore::HoldMode>(static_cast<simcore::HoldMode>(i - 1)));
+    } else if (action == simapp::HudAction::kVerifyReplay) {
         try {
             app.replay_status = verify_replay(app);
         } catch (const std::exception& e) {

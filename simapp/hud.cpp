@@ -54,9 +54,24 @@ HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& c
         std::array<char, 32> thr{};
         std::snprintf(thr.data(), thr.size(), "throttle %.0f%%", 100.0 * f.throttle);
         ImGui::ProgressBar(static_cast<float>(f.throttle), ImVec2(-1.0F, 0.0F), thr.data());
-        ImGui::Text("%-14s %s", "Rate damping", f.rate_damping ? "on" : "off");
+        ImGui::Text("%-14s %s", "Rate damping",
+                    f.hold ? "off (hold active)" : (f.rate_damping ? "on" : "off"));
+        static constexpr std::array<const char*, 6> kHoldNames{
+            "prograde", "retrograde", "normal", "antinormal", "radial out", "radial in"};
+        ImGui::Text("%-14s %s", "Attitude hold",
+                    f.hold ? kHoldNames.at(static_cast<std::size_t>(*f.hold)) : "off");
+        static constexpr std::array<const char*, 7> kHoldButtons{"Off",  "Pro",   "Retro", "Norm",
+                                                                 "Anti", "R-out", "R-in"};
+        for (std::size_t i = 0; i < kHoldButtons.size(); ++i) {
+            if (i > 0) {
+                ImGui::SameLine();
+            }
+            if (ImGui::SmallButton(kHoldButtons.at(i))) {
+                action = static_cast<HudAction>(static_cast<std::size_t>(HudAction::kHoldOff) + i);
+            }
+        }
         ImGui::TextDisabled("Shift/Ctrl throttle  Z/X full/cut  W/S A/D Q/E rotate");
-        ImGui::TextDisabled("T damping  ,/. warp  (>100x needs rails: coasting, no J2)");
+        ImGui::TextDisabled("T damping  R hold  ,/. warp  (>100x: rails, no hold, no J2)");
         ImGui::Text("%-14s %s", "Environment", f.j2 ? "point mass + J2" : "two-body");
         if (ImGui::Button("Restart: two-body")) {
             action = HudAction::kRestartTwoBody;

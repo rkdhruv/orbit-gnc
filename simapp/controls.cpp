@@ -38,6 +38,15 @@ void Controls::handle_keys(double frame_dt_s) {
     if (IsKeyPressed(KEY_T)) {
         rate_damping_ = !rate_damping_;
     }
+    if (IsKeyPressed(KEY_R)) {  // off -> prograde -> ... -> radial in -> off
+        if (!hold_) {
+            hold_ = simcore::HoldMode::kPrograde;
+        } else if (*hold_ == simcore::HoldMode::kRadialIn) {
+            hold_.reset();
+        } else {
+            hold_ = static_cast<simcore::HoldMode>(static_cast<int>(*hold_) + 1);
+        }
+    }
     if (IsKeyPressed(KEY_PERIOD) && warp_index_ + 1 < kWarpLevels.size()) {
         ++warp_index_;
     }

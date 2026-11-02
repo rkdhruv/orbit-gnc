@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 
 #include <Eigen/Core>
 
@@ -22,14 +23,9 @@ inline constexpr double kRateDampingGain_per_s = 0.5;
 
 // Pilot input to a vehicle command.
 // Throttle: the main engine (thruster 0) only; other thrusters off.
-// Rotation is by the reaction wheels. Motor torque tau_m on wheel j turns the body by -tau_m a_j,
-// so a wanted body torque tau_b needs tau_m = -A+ tau_b, with A = [a_1 ... a_n] and A+ its
-// pseudo-inverse (the minimum-norm allocation). If any wheel would exceed its torque limit, all
-// are scaled down by the same factor, which keeps the torque's direction.
-//   rotate input u:  tau_b = sum_k u_k T_k e_k, T_k = the largest torque about body axis k
-//                    under this allocation (a redundant set, e.g. a 4-wheel pyramid, could make
-//                    more using its null space; for a set that can't act about axis k the
-//                    result has A A+ e_k != e_k, so it isn't about axis k at all)
+// Rotation is by the reaction wheels, through wheel_torques_for_body_torque (gnc/
+// wheel_allocation.hpp: tau_m = -A+ tau_b, scaled down together to the torque limits):
+//   rotate input u:  tau_b = sum_k u_k T_k e_k, T_k = wheel_axis_authority_nm(cfg, k)
 //   rate damping:    tau_b = -k I w (used only when u = 0); exactly zero once
 //                    |w| <= Simulation::kRailsMaxRate_radps, so a damped vehicle can go on rails.
 // Throws std::invalid_argument for throttle outside [0, 1], a rotate component that isn't finite
@@ -51,5 +47,11 @@ inline constexpr double kManualHoldMax_s = 0.5;
 // log and replays exactly. Throws std::invalid_argument for ticks < 0 or hold_ticks < 0.
 void fly_manual(Simulation& sim, const ManualInput& input, std::int64_t ticks,
                 std::int64_t hold_ticks = 0);  // 0: kManualHoldMax_s / tick_s
+
+// The same loop for any control law (state -> command), e.g. an attitude hold: the law is
+// re-evaluated at least every hold_ticks, and a coasting command is held for the rest of the call.
+using ControlLaw = std::function<VehicleCommand(const VehicleState&)>;
+void fly_with(Simulation& sim, const ControlLaw& law, std::int64_t ticks,
+              std::int64_t hold_ticks = 0);
 
 }  // namespace simcore

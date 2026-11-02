@@ -7,6 +7,8 @@ add_library(simcore STATIC
     src/dynamics/rigid_body.cpp
     src/events/brent.cpp
     src/events/events.cpp
+    src/gnc/attitude_control.cpp
+    src/gnc/wheel_allocation.cpp
     src/integrators/attitude.cpp
     src/integrators/dense_output.cpp
     src/integrators/dormand_prince.cpp
