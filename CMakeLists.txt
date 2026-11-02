@@ -20,6 +20,14 @@ option(ORBIT_WERROR "Treat warnings in our own targets as errors" OFF)
 # bit-identical on the same platform, not guaranteed across architectures.
 add_compile_options(-ffp-contract=off)
 
+# Web: Emscripten's default build turns every C++ throw into an abort of the whole module, so a
+# SIMCORE_CHECK failure would freeze the tab. Enable exception catching (compile and link, for
+# every target that throws or catches) so simapp can show the error and offer a restart.
+if(EMSCRIPTEN)
+    add_compile_options(-sDISABLE_EXCEPTION_CATCHING=0)
+    add_link_options(-sDISABLE_EXCEPTION_CATCHING=0)
+endif()
+
 # Warning set for our own code only (dependencies are not held to it).
 add_library(orbit_warnings INTERFACE)
 target_compile_options(orbit_warnings INTERFACE

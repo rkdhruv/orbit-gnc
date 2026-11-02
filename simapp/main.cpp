@@ -5,6 +5,7 @@
 #include <raylib.h>
 #include <rlImGui.h>
 
+#include <exception>
 #include <memory>
 #include <numbers>
 #include <optional>
@@ -81,6 +82,7 @@ struct App {
     simcore::VehicleState initial =
         sim.snapshot().state;  // with the input log, replays the session
     std::string replay_status;
+    std::string error;  // set when the sim throws; the app then shows it and stops stepping
     // No practical tick cap: on rails a step() of any length is one Kepler solve, and integrated
     // warp is limited to kMaxIntegratedWarp by the controls instead.
     simcore::TickScheduler scheduler{sim.config().tick_s, 0.25, 1'000'000'000'000};
@@ -119,14 +121,11 @@ std::string verify_replay(const App& app) {
                            : std::string("MISMATCH: ") + diff + " differs";
 }
 
-// One frame of the app. Shared by the desktop loop and the browser's
-// requestAnimationFrame callback (the browser can't run a blocking while-loop).
-void UpdateDrawFrame() {
-    App& app = *g_app;
-    const auto frame_dt = static_cast<double>(GetFrameTime());
-
-    // Pilot input -> command for the next ticks. ImGui's capture flags are from the previous
-    // frame, which is what input handling needs.
+// The sim half of a frame: pilot input -> command, warp limit, ticks. May throw (a SIMCORE_CHECK
+// failure, e.g. rails on a near-parabolic orbit); it runs before any drawing starts, so an
+// exception never leaves raylib or ImGui mid-frame.
+simcore::Telemetry update_sim(App& app, double frame_dt) {
+    // ImGui's capture flags are from the previous frame, which is what input handling needs.
     if (!ImGui::GetIO().WantCaptureKeyboard) {
         app.controls.handle_keys(frame_dt);
     }
@@ -142,7 +141,38 @@ void UpdateDrawFrame() {
         app.scheduler.ticks_for_frame(frame_dt, app.controls.warp());
     app.sim.step(ft.ticks);
     app.fell_behind = ft.fell_behind;
+    return simcore::telemetry(vehicle, app.sim.snapshot().state);
+}
+
+// Shown instead of the HUD once the sim has thrown: the message and a way to start again.
+simapp::HudAction draw_error(const std::string& message, bool j2) {
+    ImGui::SetNextWindowPos(ImVec2(16.0F, 16.0F), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(420.0F, 0.0F), ImGuiCond_Always);
+    ImGui::Begin("Simulation stopped");
+    ImGui::TextWrapped("The simulation rejected its state and stopped:");
+    ImGui::TextWrapped("%s", message.c_str());
+    simapp::HudAction action = simapp::HudAction::kNone;
+    if (ImGui::Button("Restart")) {
+        action = j2 ? simapp::HudAction::kRestartJ2 : simapp::HudAction::kRestartTwoBody;
+    }
+    ImGui::End();
+    return action;
+}
+
+// One frame of the app. Shared by the desktop loop and the browser's
+// requestAnimationFrame callback (the browser can't run a blocking while-loop).
+void UpdateDrawFrame() {
+    App& app = *g_app;
+    std::optional<simcore::Telemetry> tm;
+    if (app.error.empty()) {
+        try {
+            tm = update_sim(app, static_cast<double>(GetFrameTime()));
+        } catch (const std::exception& e) {
+            app.error = e.what();  // the sim stops here; nothing steps until a restart
+        }
+    }
     const simcore::Snapshot snap = app.sim.snapshot();
+    const simcore::VehicleConfig& vehicle = app.sim.config().vehicle;
 
     app.scene.handle_input(!ImGui::GetIO().WantCaptureMouse);
 
@@ -151,18 +181,25 @@ void UpdateDrawFrame() {
     app.scene.draw(snap);
 
     rlImGuiBegin();
-    const simapp::HudAction action = simapp::draw_hud(
-        simcore::telemetry(vehicle, snap.state), vehicle,
-        simapp::HudFrame{snap.state.t - app.t0, snap.tick, app.scene.camera_distance_m(), GetFPS(),
-                         app.fell_behind, app.controls.warp(), app.controls.throttle(),
-                         app.controls.rate_damping(), snap.on_rails, app.j2,
-                         app.replay_status.c_str()});
+    const simapp::HudAction action =
+        tm.has_value()
+            ? simapp::draw_hud(
+                  *tm, vehicle,
+                  simapp::HudFrame{snap.state.t - app.t0, snap.tick, app.scene.camera_distance_m(),
+                                   GetFPS(), app.fell_behind, app.controls.warp(),
+                                   app.controls.throttle(), app.controls.rate_damping(),
+                                   snap.on_rails, app.j2, app.replay_status.c_str()})
+            : draw_error(app.error, app.j2);
     rlImGuiEnd();
 
     EndDrawing();
 
     if (action == simapp::HudAction::kVerifyReplay) {
-        app.replay_status = verify_replay(app);
+        try {
+            app.replay_status = verify_replay(app);
+        } catch (const std::exception& e) {
+            app.replay_status = std::string("replay failed: ") + e.what();
+        }
     } else if (action != simapp::HudAction::kNone) {
         g_app = std::make_unique<App>(action == simapp::HudAction::kRestartJ2);
     }
@@ -170,8 +207,9 @@ void UpdateDrawFrame() {
 
 }  // namespace
 
-// A SIMCORE_CHECK failure escaping main is a programming error, so terminating is intended. M3.6
-// shows such errors in the UI instead (exception catching in the web build).
+// Sim errors are caught per frame and shown in the UI (the web build enables exception catching
+// for this). What can still escape main is a failure building the initial scenario, a programming
+// error, for which terminating is the right outcome.
 int main() {  // NOLINT(bugprone-exception-escape)
     // raylib's flags are a plain C enum, so OR-ing them is signed-int bitwise by design.
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT |  // NOLINT(bugprone-signed-bitwise)

@@ -62,3 +62,67 @@ jobs:
         run: cmake --build --preset asan
       - name: Test
         run: ctest --preset asan
+
+  # Browser build (Emscripten, version pinned to match local development). Runs on every push and
+  # PR, so a PR proves the web build still compiles; the site is uploaded as the Pages artifact.
+  web:
+    name: web (emscripten)
+    runs-on: ubuntu-latest
+    env:
+      EMSDK_VERSION: 6.0.13
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Cache emsdk
+        id: emsdk-cache
+        uses: actions/cache@v4
+        with:
+          path: emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}
+      - name: Install emsdk
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "$EMSDK_VERSION" https://github.com/emscripten-core/emsdk.git
+          ./emsdk/emsdk install "$EMSDK_VERSION"
+          ./emsdk/emsdk activate "$EMSDK_VERSION"
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/web/_deps/*-subbuild/*-populate-prefix/src
+          key: deps-web-${{ hashFiles('cmake/Dependencies.cmake') }}
+      - name: Configure
+        run: |
+          source emsdk/emsdk_env.sh
+          EMSCRIPTEN_ROOT="$EMSDK/upstream/emscripten" cmake --preset web -DORBIT_WERROR=ON
+      - name: Build
+        run: |
+          source emsdk/emsdk_env.sh
+          cmake --build --preset web
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp build/web/simapp/simapp.html _site/index.html
+          cp build/web/simapp/simapp.js build/web/simapp/simapp.wasm _site/
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  # Publish to GitHub Pages, only from main and only when every other job passed.
+  deploy:
+    name: deploy to GitHub Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build-test, asan, web]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

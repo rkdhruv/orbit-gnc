@@ -5,7 +5,16 @@ navigation and control, written from scratch in C++20. The deterministic
 simulation core (`simcore`) is separate from the raylib + Dear ImGui front end
 (`simapp`), and every physics feature is checked against a reference value.
 
-> Status: **M0, project skeleton.** There is no physics yet.
+> Status: **M3, interactive front end.** Orbit propagation (point mass, J2, drag), events, rigid-body
+> attitude, thrusters and reaction wheels in a coupled 6-DOF sim, flown from a 3D front end with
+> time warp and deterministic replay. Guidance and control (the autopilot) come in M4; see
+> [ROADMAP.md](ROADMAP.md).
+
+**Live demo:** https://rkdhruv.github.io/orbit-gnc/ (built and deployed by CI from `main`).
+
+Controls: Shift/Ctrl throttle up/down, Z/X full/cut, W/S A/D Q/E pitch/yaw/roll (reaction wheels),
+T rate damping, `,` / `.` time warp (1x to 100,000x; above 100x needs a coast on rails), mouse drag
+to turn the camera, scroll to zoom. "Verify replay" re-runs the session from its input log.
 
 ## Build
 
@@ -76,3 +85,12 @@ Each row is a GoogleTest assertion; the bound in the Reference column is what th
 | Full burn in free space, Isp 300 s, 800 → 400 kg | 2039.2355 m/s (±1e-6) | error 2.4e-10 m/s |
 | Burn through burnout at a 1 s tick | no Δv without propellant (±1e-6) | error 7e-12 m/s |
 | Reaction wheels on a tumbling body: total inertial H, 100 s | conserved (< 1e-9) | 1.6e-10 relative |
+| **M3: interactive front end** | | |
+| Sim facade vs a bare RK4 loop, driven at 60 and 144 fps | bit-identical | bit-identical (100 ticks, command change) |
+| Sim clock after 100,000 ticks of 0.02 s | t0 + 2000 s | exact |
+| Floating origin: 1 cm offset at 7,000 km | kept (naive float loses it) | error < 1e-9 m (naive ≥ 0.009 m) |
+| HUD telemetry: GTO period, 300 × 35,786 km | 37,980.42 s | within 0.01 s |
+| On rails vs RK4, 600 s coast | same motion (< 1e-3 m) | roundoff-level |
+| 1,000,000 ticks on rails | the Kepler solution | bit-identical |
+| Rate damping stops a 0.03 rad/s tumble | within 120 s | wheels take \|Iω₀\| = 9.877 N·m·s |
+| Replay of a flown session (3000 frames, burns, warp on rails) | bit-identical on the same machine | bit-identical |

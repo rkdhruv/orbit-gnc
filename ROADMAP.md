@@ -49,7 +49,7 @@ through the test-first loop in CLAUDE.md.
   - On rails (Kepler) while coasting with perturbations off; integrated while thrusting or when J2/drag are on.
   - Switching between the two must be continuous.
 - [x] Deterministic replay: record timestamped inputs per sim tick, re-run identically
-- [ ] Emscripten build deployed to GitHub Pages from CI
+- [x] Emscripten build deployed to GitHub Pages from CI
   - Enable exception catching (`-sDISABLE_EXCEPTION_CATCHING=0`) so `SIMCORE_CHECK` failures can be shown in the browser rather than aborting it.
 - **Done when:**
   - you can fly a manual orbit raise in the browser;

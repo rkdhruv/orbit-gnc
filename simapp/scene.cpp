@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <stdexcept>
 #include <vector>
 
 #include "render_frame.hpp"
@@ -110,8 +111,13 @@ void draw_far_pass(const simcore::Snapshot& snap, float yaw, float pitch, double
 
     // Orbit line from the osculating conic; closed (ring) if bound: v^2 / 2 - mu / r < 0.
     const simcore::State orbit{snap.state.t, snap.state.r_eci, snap.state.v_eci};
-    const std::vector<Eigen::Vector3d> pts =
-        simcore::sample_orbit_eci(orbit, kOrbitPoints, kOrbitRMaxM);
+    // Drawing must not throw mid-frame: a state with no orbit plane (h = 0) just has no line.
+    std::vector<Eigen::Vector3d> pts;
+    try {
+        pts = simcore::sample_orbit_eci(orbit, kOrbitPoints, kOrbitRMaxM);
+    } catch (const std::invalid_argument&) {
+        pts.clear();
+    }
     const double energy = 0.5 * orbit.v_eci.squaredNorm() - simcore::earth::mu / orbit.r_eci.norm();
     const std::size_t segments = energy < 0.0 ? pts.size() : pts.size() - 1;
     for (std::size_t k = 0; k < segments && pts.size() > 1; ++k) {
