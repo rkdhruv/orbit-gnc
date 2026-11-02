@@ -109,17 +109,18 @@ void draw_far_pass(const simcore::Snapshot& snap, float yaw, float pitch, double
     draw_lat_long_grid(1.003F * R_km, Color{90, 140, 210, 255});
     rlPopMatrix();
 
-    // Orbit line from the osculating conic; closed (ring) if bound: v^2 / 2 - mu / r < 0.
+    // Orbit line from the osculating conic: a ring if closed, an open arc otherwise (the same
+    // e < 1 test that sampled it). Drawing must not throw mid-frame: a state with no orbit plane
+    // (h = 0) just has no line.
     const simcore::State orbit{snap.state.t, snap.state.r_eci, snap.state.v_eci};
-    // Drawing must not throw mid-frame: a state with no orbit plane (h = 0) just has no line.
-    std::vector<Eigen::Vector3d> pts;
+    simcore::OrbitTrack track{{}, false};
     try {
-        pts = simcore::sample_orbit_eci(orbit, kOrbitPoints, kOrbitRMaxM);
+        track = simcore::sample_orbit_eci(orbit, kOrbitPoints, kOrbitRMaxM);
     } catch (const std::invalid_argument&) {
-        pts.clear();
+        track.points.clear();
     }
-    const double energy = 0.5 * orbit.v_eci.squaredNorm() - simcore::earth::mu / orbit.r_eci.norm();
-    const std::size_t segments = energy < 0.0 ? pts.size() : pts.size() - 1;
+    const std::vector<Eigen::Vector3d>& pts = track.points;
+    const std::size_t segments = track.closed ? pts.size() : pts.size() - 1;
     for (std::size_t k = 0; k < segments && pts.size() > 1; ++k) {
         DrawLine3D(to_rl(to_render(pts[k], origin, kKm)),
                    to_rl(to_render(pts[(k + 1) % pts.size()], origin, kKm)),

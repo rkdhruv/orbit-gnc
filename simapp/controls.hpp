@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 #include <Eigen/Core>
 
@@ -14,6 +15,9 @@ namespace simapp {
 inline constexpr std::array<double, 9> kWarpLevels{1.0,   2.0,    5.0,   10.0, 50.0,
                                                    100.0, 1000.0, 1.0e4, 1.0e5};
 inline constexpr double kMaxIntegratedWarp = 100.0;
+// Backstop: at most this many integrated (RK4) ticks per frame, whatever the warp (~5 ms natively
+// at ~1 us per tick). Time beyond it is dropped and the HUD shows "behind".
+inline constexpr std::int64_t kMaxIntegratedTicksPerFrame = 5000;
 
 // Keyboard state the pilot builds up, KSP-style:
 //   Shift / Ctrl  throttle up / down (50% per second)    Z / X  full throttle / cut

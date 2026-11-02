@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cstdint>
+
 #include <Eigen/Core>
 
+#include "simcore/sim/simulation.hpp"
 #include "simcore/vehicle/vehicle.hpp"
 
 namespace simcore {
@@ -23,13 +26,30 @@ inline constexpr double kRateDampingGain_per_s = 0.5;
 // so a wanted body torque tau_b needs tau_m = -A+ tau_b, with A = [a_1 ... a_n] and A+ its
 // pseudo-inverse (the minimum-norm allocation). If any wheel would exceed its torque limit, all
 // are scaled down by the same factor, which keeps the torque's direction.
-//   rotate input u:  tau_b = sum_k u_k T_k e_k, T_k = the largest torque the wheels can make
-//                    about body axis k alone
+//   rotate input u:  tau_b = sum_k u_k T_k e_k, T_k = the largest torque about body axis k
+//                    under this allocation (a redundant set, e.g. a 4-wheel pyramid, could make
+//                    more using its null space; for a set that can't act about axis k the
+//                    result has A A+ e_k != e_k, so it isn't about axis k at all)
 //   rate damping:    tau_b = -k I w (used only when u = 0); exactly zero once
 //                    |w| <= Simulation::kRailsMaxRate_radps, so a damped vehicle can go on rails.
 // Throws std::invalid_argument for throttle outside [0, 1], a rotate component that isn't finite
 // and in [-1, 1], or a state that doesn't match the vehicle.
 VehicleCommand manual_command(const VehicleConfig& cfg, const ManualInput& in,
                               const VehicleState& s);
+
+// The longest a manual command may be held before it is recomputed [s]. The damping command held
+// for T gives the discrete loop w+ = (1 - k T) w, stable only for k T < 2; at k = 0.5 /s, 0.5 s
+// gives k T = 0.25 (a monotone decay, within 4% of the continuous e^(-k T) = 0.78 per hold).
+inline constexpr double kManualHoldMax_s = 0.5;
+
+// Run `ticks` ticks of manual flight: submit manual_command(input, current state) and step, in
+// chunks of at most hold_ticks (default: kManualHoldMax_s worth of ticks). The front end calls
+// this once per frame, so the vehicle's behaviour doesn't depend on the frame time or the warp
+// (a 10 fps frame at 100x warp would otherwise hold one damping command for 10 s, k T = 5).
+// A coasting command (nothing firing) is held for the whole call, since recomputing it can't
+// change it unless the input changes. Every command goes through submit(), so it is in the input
+// log and replays exactly. Throws std::invalid_argument for ticks < 0 or hold_ticks < 0.
+void fly_manual(Simulation& sim, const ManualInput& input, std::int64_t ticks,
+                std::int64_t hold_ticks = 0);  // 0: kManualHoldMax_s / tick_s
 
 }  // namespace simcore

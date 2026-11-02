@@ -28,6 +28,10 @@ struct KeplerianElements {
 // near-parabolic one (|1 - e| < 1e-9, where a is undefined).
 KeplerianElements elements_from_state(const State& s, double mu = earth::mu);
 
+// True exactly when elements_from_state(s, mu) would succeed (mu finite and > 0 assumed): the
+// state is finite, r != 0, h is not ~0 and |1 - e| >= 1e-9. Lets callers check instead of catch.
+bool has_conic_elements(const State& s, double mu = earth::mu);
+
 // State at epoch t on the orbit given by el. Throws std::invalid_argument for non-finite input,
 // e < 0, |1 - e| < 1e-9, a whose sign doesn't match e (ellipse: a > 0, hyperbola: a < 0), or a
 // hyperbolic nu at or beyond the asymptote (1 + e cos nu <= 0).

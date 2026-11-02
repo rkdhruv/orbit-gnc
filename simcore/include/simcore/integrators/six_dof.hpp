@@ -25,7 +25,7 @@ namespace simcore {
 // supplies external torques from the same State and the attitude.
 
 // Input checks shared by the propagator and the sim facade; both throw std::invalid_argument.
-// Command: one throttle in [0, 1] per thruster and one wheel torque per wheel.
+// Command: one throttle in [0, 1] per thruster and one finite wheel torque per wheel.
 void validate_command(const VehicleConfig& cfg, const VehicleCommand& cmd);
 // State: one wheel momentum per wheel and propellant in [0, capacity].
 void validate_vehicle_state(const VehicleConfig& cfg, const VehicleState& s);

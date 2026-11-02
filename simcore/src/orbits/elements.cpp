@@ -34,6 +34,27 @@ double angle_about(const Eigen::Vector3d& k_hat, const Eigen::Vector3d& x,
 
 }  // namespace
 
+bool has_conic_elements(const State& s, double mu) {
+    // The same tests, in the same order and with the same thresholds, as elements_from_state.
+    const Eigen::Vector3d& r = s.r_eci;
+    const Eigen::Vector3d& v = s.v_eci;
+    if (!r.allFinite() || !v.allFinite()) {
+        return false;
+    }
+    const double rn = r.norm();
+    const double vn = v.norm();
+    if (!(rn > 0.0)) {
+        return false;
+    }
+    const Eigen::Vector3d h = r.cross(v);
+    const double hn = h.norm();
+    if (!(hn > 1e-12 * rn * vn && hn > 0.0)) {
+        return false;
+    }
+    const double e = (v.cross(h) / mu - r / rn).norm();
+    return std::abs(1.0 - e) >= kParabolic;
+}
+
 KeplerianElements elements_from_state(const State& s, double mu) {
     SIMCORE_CHECK(std::isfinite(mu) && mu > 0.0, "mu must be finite and > 0");
     const Eigen::Vector3d& r = s.r_eci;

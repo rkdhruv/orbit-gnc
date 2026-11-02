@@ -5,10 +5,12 @@
 #include <raylib.h>
 #include <rlImGui.h>
 
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <numbers>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 #include "controls.hpp"
@@ -130,17 +132,27 @@ simcore::Telemetry update_sim(App& app, double frame_dt) {
         app.controls.handle_keys(frame_dt);
     }
     const simcore::VehicleConfig& vehicle = app.sim.config().vehicle;
-    const simcore::VehicleCommand cmd =
-        simcore::manual_command(vehicle, app.controls.input(), app.sim.snapshot().state);
-    app.sim.submit(cmd);
-    // Fast warp only on rails: a coast in a two-body environment.
-    const bool can_rail = app.sim.config().rails_mu.has_value() && simcore::is_coast(cmd);
+    const simcore::ManualInput input = app.controls.input();
+    // Fast warp only if the next tick would be a rails coast (coasting, not rotating, a conic
+    // orbit clear of the surface, two-body environment); otherwise integration's limit.
+    const bool can_rail =
+        app.sim.would_rail(simcore::manual_command(vehicle, input, app.sim.snapshot().state));
     app.controls.clamp_warp(can_rail ? simapp::kWarpLevels.back() : simapp::kMaxIntegratedWarp);
 
     const simcore::TickScheduler::FrameTicks ft =
         app.scheduler.ticks_for_frame(frame_dt, app.controls.warp());
-    app.sim.step(ft.ticks);
+    std::int64_t ticks = ft.ticks;
     app.fell_behind = ft.fell_behind;
+    if (!can_rail && ticks > simapp::kMaxIntegratedTicksPerFrame) {
+        ticks = simapp::kMaxIntegratedTicksPerFrame;
+        app.fell_behind = true;
+    }
+    // Recomputes the command at least every kManualHoldMax_s, so damping stays stable at any
+    // frame rate and warp.
+    simcore::fly_manual(app.sim, input, ticks);
+    if (app.sim.snapshot().impacted) {
+        throw std::runtime_error("impact: the vehicle hit the surface (altitude below 0 km)");
+    }
     return simcore::telemetry(vehicle, app.sim.snapshot().state);
 }
 

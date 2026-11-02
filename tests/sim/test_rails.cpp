@@ -94,18 +94,26 @@ TEST(Rails, CoastIsTheKeplerSolutionFromTheEntryState) {
     EXPECT_EQ(snap.state.wheel_h_nms, s0.wheel_h_nms);
 }
 
-// Chunking doesn't matter on rails (every tick is evaluated from the same entry state):
-// 7 x step(1) + step(993) is bit-identical to step(1000).
+// Chunking doesn't matter on rails (every tick is evaluated from the same entry state), including
+// after an entry partway through a session: burn for 7 ticks, then coast. Entry happens at tick 7
+// from the post-burn state; 5 x step(1) + step(995) is bit-identical to step(1000).
 TEST(Rails, ChunkingDoesNotMatter) {
     Simulation a(two_body(true), initial());
     Simulation b(two_body(true), initial());
-    for (int k = 0; k < 7; ++k) {
+    for (Simulation* sim : {&a, &b}) {
+        sim->submit(kBurn);
+        sim->step(7);
+        sim->submit(kCoast);
+    }
+    for (int k = 0; k < 5; ++k) {
         a.step(1);
     }
-    a.step(993);
+    a.step(995);
     b.step(1000);
+    EXPECT_TRUE(a.snapshot().on_rails);
     EXPECT_EQ(a.snapshot().state.r_eci, b.snapshot().state.r_eci);
     EXPECT_EQ(a.snapshot().state.v_eci, b.snapshot().state.v_eci);
+    EXPECT_LT(a.snapshot().state.propellant_kg, initial().propellant_kg);  // the burn happened
 }
 
 // Rails and integration describe the same motion: a 600 s coast on rails vs RK4 at h = 0.02 s
@@ -197,4 +205,53 @@ TEST(Rails, EntryStopsResidualRotation) {
     EXPECT_TRUE(sim.snapshot().on_rails);
     EXPECT_EQ(sim.snapshot().state.w_body, Eigen::Vector3d::Zero());
     EXPECT_EQ(sim.snapshot().state.q_body_to_eci.coeffs(), slow.q_body_to_eci.coeffs());
+}
+
+// Orbits the Kepler solver can't propagate don't go on rails; they are integrated instead of
+// throwing (M3 review: step() used to throw after changing tick and time). Parabolic coast:
+// v = sqrt(2) v_circ at 7,000 km, so e = 1 to roundoff.
+TEST(Rails, NonConicOrbitIsIntegratedInsteadOfRailed) {
+    VehicleState s0 = initial();
+    s0.r_eci = Eigen::Vector3d(7.0e6, 0.0, 0.0);
+    s0.v_eci = Eigen::Vector3d(0.0, std::sqrt(2.0 * simcore::earth::mu / 7.0e6), 0.0);
+    Simulation sim(two_body(true), s0);
+    EXPECT_FALSE(sim.would_rail(kCoast));
+    EXPECT_NO_THROW(sim.step(10));
+    EXPECT_FALSE(sim.snapshot().on_rails);
+    EXPECT_EQ(sim.snapshot().tick, 10);
+    EXPECT_NE(sim.snapshot().state.r_eci, s0.r_eci);
+}
+
+// A coast whose periapsis is below the surface would pass through the Earth on rails (and skip
+// the impact); it is integrated tick by tick instead, so the impact is caught. 420 km at 0.95 of
+// circular speed: apoapsis 420 km, periapsis r_a (1 - e) / (1 + e) with e = 1 - 0.95^2 = 0.0975,
+// i.e. 5,590 km from the centre, 788 km below the surface.
+TEST(Rails, SuborbitalCoastIsNotRailed) {
+    VehicleState s0 = initial();
+    s0.v_eci *= 0.95;
+    Simulation sim(two_body(true), s0);
+    EXPECT_FALSE(sim.would_rail(kCoast));
+    sim.step(10);
+    EXPECT_FALSE(sim.snapshot().on_rails);
+}
+
+// would_rail(cmd): whether the next tick, run with cmd, would be a rails coast. The front end uses
+// it to cap time warp (M3 review: it only checked the command, so a vehicle still rotating with
+// damping off got 100,000x warp of RK4 ticks).
+TEST(Rails, WouldRailMatchesTheRailsConditions) {
+    {
+        Simulation sim(two_body(true), initial());
+        EXPECT_TRUE(sim.would_rail(kCoast));
+        EXPECT_FALSE(sim.would_rail(kBurn));
+        EXPECT_FALSE(sim.would_rail(VehicleCommand{{0.0}, {0.0, 0.01, 0.0}}));
+        sim.step(5);
+        EXPECT_TRUE(sim.snapshot().on_rails);
+        EXPECT_TRUE(sim.would_rail(kCoast));  // and stays true on rails
+    }
+    {
+        VehicleState spinning = initial();
+        spinning.w_body = Eigen::Vector3d(0.0, 0.0, 2.0 * Simulation::kRailsMaxRate_radps);
+        EXPECT_FALSE(Simulation(two_body(true), spinning).would_rail(kCoast));
+    }
+    EXPECT_FALSE(Simulation(two_body(false), initial()).would_rail(kCoast));
 }

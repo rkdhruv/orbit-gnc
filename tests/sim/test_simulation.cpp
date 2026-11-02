@@ -25,7 +25,10 @@
 #include "simcore/constants.hpp"
 #include "simcore/dynamics/force_sum.hpp"
 #include "simcore/dynamics/point_mass_gravity.hpp"
+#include "simcore/events/events.hpp"
+#include "simcore/integrators/dormand_prince.hpp"
 #include "simcore/integrators/six_dof.hpp"
+#include "simcore/sim/replay.hpp"
 #include "simcore/sim/simulation.hpp"
 #include "simcore/sim/tick_scheduler.hpp"
 
@@ -56,10 +59,14 @@ VehicleConfig test_vehicle() {
         {ReactionWheel(Eigen::Vector3d::UnitZ(), 0.1, 0.2, 600.0)}};
 }
 
+// Free space with the vehicle at the origin: no Earth, so impact detection is off (radius 0).
 SimConfig free_space_config(double tick_s = 0.02) {
-    return SimConfig{test_vehicle(), std::make_shared<simcore::ForceSum>(),
-                     std::make_shared<ConstantBodyTorque>(Eigen::Vector3d::Zero()), tick_s,
-                     std::nullopt};
+    return SimConfig{test_vehicle(),
+                     std::make_shared<simcore::ForceSum>(),
+                     std::make_shared<ConstantBodyTorque>(Eigen::Vector3d::Zero()),
+                     tick_s,
+                     std::nullopt,
+                     0.0};
 }
 
 VehicleState at_rest() {
@@ -221,8 +228,51 @@ TEST(Simulation, RejectsInvalidConfigStateAndCommands) {
     EXPECT_THROW(sim.submit(VehicleCommand{{1.0}, {0.0}}), std::invalid_argument);       // count
     EXPECT_THROW(sim.submit(VehicleCommand{{1.5, 0.0}, {0.0}}), std::invalid_argument);  // range
     EXPECT_THROW(sim.submit(VehicleCommand{{0.0, 0.0}, {}}), std::invalid_argument);     // wheels
+    const double kNaNTorque = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_THROW(sim.submit(VehicleCommand{{0.0, 0.0}, {kNaNTorque}}),
+                 std::invalid_argument);  // non-finite wheel torque, caught at submit
     EXPECT_THROW(sim.step(-1), std::invalid_argument);
     sim.step(5);
     EXPECT_EQ(sim.snapshot().tick, 5);
     EXPECT_EQ(sim.snapshot().state.v_eci, Eigen::Vector3d::Zero());
+}
+
+// ---------------------------------------------------------------------------------------------
+// Impact
+// ---------------------------------------------------------------------------------------------
+
+// Dropped from rest at 100 km (radial free fall, ~145 s): the sim stops at the first tick that
+// ends below the surface (|r| < R), flags the impact, and further step() calls do nothing.
+// Reference impact time from the M1 event finder on DP5 (time-accurate to microseconds): the
+// stopping tick ends within one tick after it, t_ref <= t_stop < t_ref + h (RK4 at h = 0.02 s is
+// far more accurate than a tick). A replay past the impact stops at the same tick.
+TEST(Simulation, StopsAtImpact) {
+    const auto gravity = std::make_shared<simcore::PointMassGravity>();
+    const SimConfig cfg{test_vehicle(), gravity,
+                        std::make_shared<ConstantBodyTorque>(Eigen::Vector3d::Zero()), 0.02,
+                        simcore::earth::mu};
+    VehicleState s0 = at_rest();
+    s0.r_eci = Eigen::Vector3d(simcore::earth::radius + 100.0e3, 0.0, 0.0);
+    Simulation sim(cfg, s0);
+    sim.step(20'000);  // 400 s: well past the impact
+    const simcore::Snapshot hit = sim.snapshot();
+    EXPECT_TRUE(hit.impacted);
+    EXPECT_LT(hit.tick, 20'000);
+    EXPECT_LT(hit.state.r_eci.norm(), simcore::earth::radius);
+
+    simcore::DormandPrince54 dp(simcore::DpOptions{});
+    const simcore::EventRun ref =
+        simcore::propagate_with_events(dp, *gravity, simcore::State{s0.t, s0.r_eci, s0.v_eci},
+                                       s0.t + 400.0, {simcore::impact_event()});
+    ASSERT_TRUE(ref.terminated);
+    const double t_ref = ref.final_state.t - s0.t;
+    const double t_stop = hit.state.t - s0.t;
+    EXPECT_NEAR(t_ref, 145.0, 5.0);  // ~sqrt(2 * 100 km / 9.5 m/s^2)
+    EXPECT_GE(t_stop, t_ref);
+    EXPECT_LT(t_stop, t_ref + 0.02);
+
+    sim.step(100);
+    EXPECT_EQ(sim.snapshot().tick, hit.tick);
+    EXPECT_EQ(sim.snapshot().state.r_eci, hit.state.r_eci);
+    EXPECT_EQ(simcore::replay(cfg, s0, {}, 20'000).tick, hit.tick);
 }

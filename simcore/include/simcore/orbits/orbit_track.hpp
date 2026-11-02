@@ -20,7 +20,10 @@ namespace simcore {
 // cos nu_max = (p / r_max - 1) / e. Empty if periapsis p / (1 + e) is not inside r_max_m.
 // Throws std::invalid_argument for n_points < 3, r_max_m not finite and > 0, or r = 0 or h = 0
 // (no orbit plane).
-std::vector<Eigen::Vector3d> sample_orbit_eci(const State& s, int n_points, double r_max_m,
-                                              double mu = earth::mu);
+struct OrbitTrack {
+    std::vector<Eigen::Vector3d> points;
+    bool closed;  // e < 1: draw a segment from the last point back to the first
+};
+OrbitTrack sample_orbit_eci(const State& s, int n_points, double r_max_m, double mu = earth::mu);
 
 }  // namespace simcore

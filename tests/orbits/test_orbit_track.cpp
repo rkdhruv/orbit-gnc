@@ -45,7 +45,9 @@ TEST(OrbitTrack, CircularOrbitIsAnEvenRingThroughTheCurrentPosition) {
     const double a = earth::radius + 420.0e3;
     const State s = state_from(a, 0.0, 51.6 * kDeg, 30.0 * kDeg, 0.0, 1.0);
     const std::size_t n = 360;
-    const std::vector<Eigen::Vector3d> pts = sample_orbit_eci(s, static_cast<int>(n), kNoLimit);
+    const simcore::OrbitTrack track = sample_orbit_eci(s, static_cast<int>(n), kNoLimit);
+    EXPECT_TRUE(track.closed);
+    const std::vector<Eigen::Vector3d>& pts = track.points;
     ASSERT_EQ(pts.size(), n);
     const Eigen::Vector3d h_hat = s.r_eci.cross(s.v_eci).normalized();
     const double chord = 2.0 * a * std::sin(kPi / static_cast<double>(n));
@@ -68,7 +70,9 @@ TEST(OrbitTrack, EllipsePointsLieOnTheConicAtEqualTrueAnomalySteps) {
     const double p = a * (1.0 - e * e);
     const std::size_t n = 400;
     const State s = state_from(a, e, 30.0 * kDeg, 40.0 * kDeg, 60.0 * kDeg, 0.0);
-    const std::vector<Eigen::Vector3d> pts = sample_orbit_eci(s, static_cast<int>(n), kNoLimit);
+    const simcore::OrbitTrack track = sample_orbit_eci(s, static_cast<int>(n), kNoLimit);
+    EXPECT_TRUE(track.closed);
+    const std::vector<Eigen::Vector3d>& pts = track.points;
     ASSERT_EQ(pts.size(), n);
     EXPECT_NEAR(pts[0].norm() / 6.0e6, 1.0, kRel);
     EXPECT_NEAR(pts[n / 2].norm() / 3.4e7, 1.0, kRel);
@@ -80,7 +84,7 @@ TEST(OrbitTrack, EllipsePointsLieOnTheConicAtEqualTrueAnomalySteps) {
         EXPECT_NEAR(pts[k].normalized().dot(periapsis_hat), std::cos(nu), 1e-12);
     }
     const State s2 = state_from(a, e, 30.0 * kDeg, 40.0 * kDeg, 60.0 * kDeg, 2.0);
-    EXPECT_LE((sample_orbit_eci(s2, static_cast<int>(n), kNoLimit)[0] - s2.r_eci).norm(),
+    EXPECT_LE((sample_orbit_eci(s2, static_cast<int>(n), kNoLimit).points[0] - s2.r_eci).norm(),
               kRel * s2.r_eci.norm());
 }
 
@@ -98,7 +102,9 @@ TEST(OrbitTrack, HyperbolaIsClippedAtTheMaximumRadius) {
     EXPECT_NEAR(nu_max, 1.86502, 1e-5);  // hand value
     const State s = state_from(a, e, 10.0 * kDeg, 0.0, 20.0 * kDeg, 0.5);
     const std::size_t n = 101;
-    const std::vector<Eigen::Vector3d> pts = sample_orbit_eci(s, static_cast<int>(n), r_max);
+    const simcore::OrbitTrack track = sample_orbit_eci(s, static_cast<int>(n), r_max);
+    EXPECT_FALSE(track.closed);  // an open arc: no segment from the last point back to the first
+    const std::vector<Eigen::Vector3d>& pts = track.points;
     ASSERT_EQ(pts.size(), n);
     EXPECT_NEAR(pts.front().norm() / r_max, 1.0, kRel);
     EXPECT_NEAR(pts.back().norm() / r_max, 1.0, kRel);
@@ -115,7 +121,7 @@ TEST(OrbitTrack, HyperbolaIsClippedAtTheMaximumRadius) {
             EXPECT_GT(pts[k - 1].cross(pts[k]).dot(h), 0.0);  // turning the same way as the orbit
         }
     }
-    EXPECT_TRUE(sample_orbit_eci(s, static_cast<int>(n), 6.0e6).empty());
+    EXPECT_TRUE(sample_orbit_eci(s, static_cast<int>(n), 6.0e6).points.empty());
 }
 
 TEST(OrbitTrack, RejectsInvalidInput) {

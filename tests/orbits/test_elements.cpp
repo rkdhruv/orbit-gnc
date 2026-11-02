@@ -224,3 +224,33 @@ TEST(Elements, RejectsInvalidInput) {
     EXPECT_THROW((void)simcore::state_from_elements({kA07, 0.7, kNaN, 0.0, 0.0, 0.0}, t),
                  std::invalid_argument);
 }
+
+// has_conic_elements(s) is true exactly when elements_from_state(s) succeeds, so callers can ask
+// first instead of catching (M3 review: on-rails eligibility and telemetry use it). Parabolic:
+// v = sqrt(2) v_circ gives e = 1 to roundoff (|1 - e| ~ 1e-16 < 1e-9).
+TEST(Elements, HasConicElementsMatchesElementsFromState) {
+    const double r = earth::radius + 420.0e3;
+    const double vc = std::sqrt(earth::mu / r);
+    const State t0 = state_from(r, 0.0, 0.0, 0.0, 0.0, 0.0);
+    const auto with_v = [&t0](const Eigen::Vector3d& v) {
+        State s = t0;
+        s.v_eci = v;
+        return s;
+    };
+    const double kNaN = std::numeric_limits<double>::quiet_NaN();
+    const std::vector<State> ok{t0, state_from(2.0e7, 0.7, 0.5, 1.0, 2.0, 3.0),
+                                state_from(-7.0e6, 2.0, 0.3, 0.0, 0.0, 0.4)};
+    for (const State& s : ok) {
+        EXPECT_TRUE(simcore::has_conic_elements(s));
+        EXPECT_NO_THROW((void)simcore::elements_from_state(s));
+    }
+    State at_centre = t0;
+    at_centre.r_eci.setZero();
+    const std::vector<State> bad{with_v(Eigen::Vector3d(0.0, std::sqrt(2.0) * vc, 0.0)),  // e = 1
+                                 with_v(Eigen::Vector3d(1000.0, 0.0, 0.0)),  // radial: h = 0
+                                 at_centre, with_v(Eigen::Vector3d(kNaN, 0.0, 0.0))};
+    for (const State& s : bad) {
+        EXPECT_FALSE(simcore::has_conic_elements(s));
+        EXPECT_THROW((void)simcore::elements_from_state(s), std::invalid_argument);
+    }
+}

@@ -10,8 +10,7 @@
 
 namespace simcore {
 
-std::vector<Eigen::Vector3d> sample_orbit_eci(const State& s, int n_points, double r_max_m,
-                                              double mu) {
+OrbitTrack sample_orbit_eci(const State& s, int n_points, double r_max_m, double mu) {
     SIMCORE_CHECK(n_points >= 3, "need at least 3 points");
     SIMCORE_CHECK(std::isfinite(r_max_m) && r_max_m > 0.0, "r_max must be finite and > 0");
     const double r = s.r_eci.norm();
@@ -31,7 +30,8 @@ std::vector<Eigen::Vector3d> sample_orbit_eci(const State& s, int n_points, doub
         return (p / (1.0 + e * std::cos(nu))) * (std::cos(nu) * P + std::sin(nu) * Q);
     };
 
-    std::vector<Eigen::Vector3d> pts;
+    OrbitTrack track{{}, e < 1.0};
+    std::vector<Eigen::Vector3d>& pts = track.points;
     pts.reserve(static_cast<std::size_t>(n_points));
     if (e < 1.0) {
         const double nu0 = std::atan2(r_hat.dot(Q), r_hat.dot(P));  // current true anomaly
@@ -39,10 +39,10 @@ std::vector<Eigen::Vector3d> sample_orbit_eci(const State& s, int n_points, doub
         for (int k = 0; k < n_points; ++k) {
             pts.push_back(point(nu0 + step * k));
         }
-        return pts;
+        return track;
     }
     if (p / (1.0 + e) >= r_max_m) {
-        return pts;  // the whole trajectory lies outside r_max
+        return track;  // the whole trajectory lies outside r_max
     }
     // Clamp guards roundoff at the edge; for e >= 1 the argument is always >= -1/e >= -1.
     const double nu_max = std::acos(std::clamp((p / r_max_m - 1.0) / e, -1.0, 1.0));
@@ -50,7 +50,7 @@ std::vector<Eigen::Vector3d> sample_orbit_eci(const State& s, int n_points, doub
     for (int k = 0; k < n_points; ++k) {
         pts.push_back(point(-nu_max + step * k));
     }
-    return pts;
+    return track;
 }
 
 }  // namespace simcore

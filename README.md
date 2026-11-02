@@ -90,7 +90,9 @@ Each row is a GoogleTest assertion; the bound in the Reference column is what th
 | Sim clock after 100,000 ticks of 0.02 s | t0 + 2000 s | exact |
 | Floating origin: 1 cm offset at 7,000 km | kept (naive float loses it) | error < 1e-9 m (naive ≥ 0.009 m) |
 | HUD telemetry: GTO period, 300 × 35,786 km | 37,980.42 s | within 0.01 s |
-| On rails vs RK4, 600 s coast | same motion (< 1e-3 m) | roundoff-level |
+| On rails vs RK4, 600 s coast | same motion (< 1e-3 m) | 8.9e-8 m, 4.8e-11 m/s |
 | 1,000,000 ticks on rails | the Kepler solution | bit-identical |
-| Rate damping stops a 0.03 rad/s tumble | within 120 s | wheels take \|Iω₀\| = 9.877 N·m·s |
+| Rate damping stops a 0.027 rad/s tumble | within 120 s | wheels take \|Iω₀\| = 9.877 N·m·s |
 | Replay of a flown session (3000 frames, burns, warp on rails) | bit-identical on the same machine | bit-identical |
+| Rate damping at 10 fps and 100x warp (command held ≤ 0.5 s) | stable, reaches rails | on rails within 200 s (held a whole frame: never) |
+| Impact from a 100 km drop vs the M1 event finder | stops within one tick after | t_ref ≤ t_stop < t_ref + 0.02 s |

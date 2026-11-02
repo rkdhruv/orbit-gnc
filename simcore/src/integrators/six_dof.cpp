@@ -86,6 +86,9 @@ void validate_command(const VehicleConfig& cfg, const VehicleCommand& cmd) {
     for (const double u : cmd.throttle) {
         SIMCORE_CHECK(u >= 0.0 && u <= 1.0, "throttle must be in [0, 1]");  // NaN fails too
     }
+    for (const double tau : cmd.wheel_torque_nm) {
+        SIMCORE_CHECK(std::isfinite(tau), "wheel torque commands must be finite");
+    }
 }
 
 void validate_vehicle_state(const VehicleConfig& cfg, const VehicleState& s) {

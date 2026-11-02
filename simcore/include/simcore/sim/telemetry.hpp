@@ -13,9 +13,13 @@ namespace simcore {
 // Derived quantities for display (the HUD), computed here so they are tested; the front end only
 // converts units and formats them. SI units throughout.
 struct Telemetry {
-    double altitude_m;            // |r| - R, spherical Earth
-    double speed_mps;             // |v|, inertial
-    KeplerianElements elements;   // osculating (instantaneous two-body) elements
+    double altitude_m;  // |r| - R, spherical Earth
+    double speed_mps;   // |v|, inertial
+    // Osculating (instantaneous two-body) elements. A state with no conic elements (rectilinear,
+    // or within 1e-9 of parabolic, which an escape burn passes through) has elements_valid false
+    // and NaN elements, apsides and period.
+    bool elements_valid;
+    KeplerianElements elements;
     double periapsis_altitude_m;  // a (1 - e) - R
     double apoapsis_altitude_m;   // a (1 + e) - R; +infinity for open orbits (e >= 1)
     double period_s;              // 2 pi sqrt(a^3 / mu); +infinity for open orbits
@@ -32,8 +36,7 @@ struct Telemetry {
     std::vector<double> wheel_saturation;
 };
 
-// Throws std::invalid_argument for a state that doesn't match the vehicle (validate_vehicle_state)
-// or one elements_from_state rejects.
+// Throws std::invalid_argument for a state that doesn't match the vehicle (validate_vehicle_state).
 Telemetry telemetry(const VehicleConfig& cfg, const VehicleState& s, double mu = earth::mu);
 
 }  // namespace simcore

@@ -160,3 +160,23 @@ TEST(Telemetry, WheelSaturationFraction) {
     s.w_body = Eigen::Vector3d(0.0, 0.0, 0.1);
     EXPECT_NEAR(simcore::telemetry(cfg, s).wheel_saturation[0], 299.9 / 600.0, 1e-15);
 }
+
+// A state with no conic elements (parabolic to roundoff, e = 1) is still a valid state to fly
+// through, e.g. during an escape burn: telemetry flags the elements as unavailable (NaN, with
+// elements_valid false) instead of throwing, and everything else is still reported.
+TEST(Telemetry, NonConicStateReportsNoElementsInsteadOfThrowing) {
+    const double r = earth::radius + 420.0e3;
+    VehicleState s = vehicle_at(state_from(r, 0.0, 0.0, 0.0, 0.0, 0.0), 400.0);
+    s.v_eci = Eigen::Vector3d(0.0, std::sqrt(2.0 * earth::mu / r), 0.0);
+    Telemetry tm{};
+    ASSERT_NO_THROW(tm = simcore::telemetry(test_vehicle(), s));
+    EXPECT_FALSE(tm.elements_valid);
+    EXPECT_TRUE(std::isnan(tm.elements.a_m));
+    EXPECT_TRUE(std::isnan(tm.period_s));
+    EXPECT_NEAR(tm.altitude_m / 420.0e3, 1.0, 1e-9);
+    EXPECT_NEAR(tm.speed_mps, std::sqrt(2.0 * earth::mu / r), 1e-9);
+    EXPECT_NEAR(tm.delta_v_remaining_mps, 2039.2355, 1e-4);
+    EXPECT_TRUE(simcore::telemetry(test_vehicle(),
+                                   vehicle_at(state_from(r, 0.0, 0.0, 0.0, 0.0, 0.0), 400.0))
+                    .elements_valid);
+}

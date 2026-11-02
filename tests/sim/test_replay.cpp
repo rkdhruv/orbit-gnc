@@ -147,10 +147,11 @@ TEST(Replay, FlownSessionReplaysBitForBit) {
 }
 
 // The comparison is sensitive: starting the first burn one tick (20 ms) late shortens it by one
-// tick, dv by (T u / m) h = (1000 * 0.8 / 800) * 0.02 = 0.02 m/s, which the warp turns into
-// kilometres of position: bound > 1 m. (A one-ulp throttle change is not a usable probe: it
-// changes dv by 1.1e-16 * 1000 N / 800 kg * 20 s = 2.8e-15 m/s, 300x below the ulp of |v| at
-// 7.66 km/s (9.1e-13 m/s), so rounding absorbs it and the replay is still bit-identical.)
+// tick, dv by (T u / m) h = (1000 * 0.8 / 700) * 0.02 = 0.023 m/s (700 kg = 400 dry + 300
+// propellant), which the warp turns into kilometres of position: bound > 1 m. (A one-ulp throttle
+// change is not a reliable probe: it changes each tick's velocity by ~3e-18 m/s, far below the ulp
+// of a velocity component (~1.4e-14 m/s at 100 m/s), so it flips a bit only rarely, about 2e-4 of
+// ticks; over a session it may or may not change the result.)
 TEST(Replay, ACommandOneTickLateChangesTheResult) {
     const Session s = fly_session();
     std::vector<LoggedCommand> log = s.sim.input_log();

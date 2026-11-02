@@ -65,7 +65,7 @@ VehicleCommand manual_command(const VehicleConfig& cfg, const ManualInput& in,
                 continue;
             }
             // T_k: scale a unit torque request about axis k until the first wheel hits its
-            // limit (0 if no wheel can act about that axis).
+            // limit (0 if the allocation gives no wheel torque for that axis).
             const double T_k = max_scale(cfg, allocate(Eigen::Vector3d::Unit(k)));
             tau_b(k) = in.rotate(k) * (std::isinf(T_k) ? 0.0 : T_k);
         }
@@ -81,6 +81,24 @@ VehicleCommand manual_command(const VehicleConfig& cfg, const ManualInput& in,
         c.wheel_torque_nm[static_cast<std::size_t>(j)] = tau_m(j);
     }
     return c;
+}
+
+void fly_manual(Simulation& sim, const ManualInput& input, std::int64_t ticks,
+                std::int64_t hold_ticks) {
+    SIMCORE_CHECK(ticks >= 0, "tick count must be >= 0");
+    SIMCORE_CHECK(hold_ticks >= 0, "hold must be >= 1 tick (or 0 for the default)");
+    if (hold_ticks == 0) {
+        hold_ticks = std::max<std::int64_t>(
+            1, static_cast<std::int64_t>(std::floor(kManualHoldMax_s / sim.config().tick_s)));
+    }
+    while (ticks > 0 && !sim.snapshot().impacted) {
+        const VehicleCommand cmd =
+            manual_command(sim.config().vehicle, input, sim.snapshot().state);
+        sim.submit(cmd);
+        const std::int64_t chunk = is_coast(cmd) ? ticks : std::min(ticks, hold_ticks);
+        sim.step(chunk);
+        ticks -= chunk;
+    }
 }
 
 }  // namespace simcore

@@ -27,9 +27,11 @@ void text_duration(const char* label, double seconds) {
     ImGui::Text("%-14s %lld:%02lld:%02lld", label, total / 3600, (total / 60) % 60, total % 60);
 }
 
-// Altitude in km, or "none" for the apoapsis of an open orbit.
+// Altitude in km, "none" for the apoapsis of an open orbit, "n/a" without conic elements.
 void text_km(const char* label, double metres) {
-    if (std::isinf(metres)) {
+    if (std::isnan(metres)) {
+        ImGui::Text("%-14s n/a", label);
+    } else if (std::isinf(metres)) {
         ImGui::Text("%-14s none (escape)", label);
     } else {
         ImGui::Text("%-14s %.3f km", label, metres / 1000.0);
@@ -75,9 +77,14 @@ HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& c
     if (ImGui::CollapsingHeader("Orbit", ImGuiTreeNodeFlags_DefaultOpen)) {
         text_km("Altitude", tm.altitude_m);
         ImGui::Text("%-14s %.3f m/s", "Speed", tm.speed_mps);
+        if (!tm.elements_valid) {
+            ImGui::TextDisabled("No conic elements (near-parabolic or radial trajectory)");
+        }
         text_km("Periapsis", tm.periapsis_altitude_m);
         text_km("Apoapsis", tm.apoapsis_altitude_m);
-        if (std::isinf(tm.period_s)) {
+        if (std::isnan(tm.period_s)) {
+            ImGui::Text("%-14s n/a", "Period");
+        } else if (std::isinf(tm.period_s)) {
             ImGui::Text("%-14s none (escape)", "Period");
         } else {
             ImGui::Text("%-14s %.2f min", "Period", tm.period_s / 60.0);

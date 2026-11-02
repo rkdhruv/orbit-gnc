@@ -17,17 +17,26 @@ Telemetry telemetry(const VehicleConfig& cfg, const VehicleState& s, double mu) 
     Telemetry tm{};
     tm.altitude_m = s.r_eci.norm() - earth::radius;
     tm.speed_mps = s.v_eci.norm();
-    tm.elements = elements_from_state(State{s.t, s.r_eci, s.v_eci}, mu);
-
-    const double a = tm.elements.a_m;
-    const double e = tm.elements.e;
-    tm.periapsis_altitude_m = a * (1.0 - e) - earth::radius;
-    if (e < 1.0) {
-        tm.apoapsis_altitude_m = a * (1.0 + e) - earth::radius;
-        tm.period_s = 2.0 * std::numbers::pi * std::sqrt(a * a * a / mu);
+    const State orbit{s.t, s.r_eci, s.v_eci};
+    tm.elements_valid = has_conic_elements(orbit, mu);
+    if (tm.elements_valid) {
+        tm.elements = elements_from_state(orbit, mu);
+        const double a = tm.elements.a_m;
+        const double e = tm.elements.e;
+        tm.periapsis_altitude_m = a * (1.0 - e) - earth::radius;  // a < 0 and e > 1 for hyperbolas
+        if (e < 1.0) {
+            tm.apoapsis_altitude_m = a * (1.0 + e) - earth::radius;
+            tm.period_s = 2.0 * std::numbers::pi * std::sqrt(a * a * a / mu);
+        } else {
+            tm.apoapsis_altitude_m = std::numeric_limits<double>::infinity();
+            tm.period_s = std::numeric_limits<double>::infinity();
+        }
     } else {
-        tm.apoapsis_altitude_m = std::numeric_limits<double>::infinity();
-        tm.period_s = std::numeric_limits<double>::infinity();
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        tm.elements = KeplerianElements{nan, nan, nan, nan, nan, nan};
+        tm.periapsis_altitude_m = nan;
+        tm.apoapsis_altitude_m = nan;
+        tm.period_s = nan;
     }
 
     tm.mass_kg = cfg.mass.mass_kg(s.propellant_kg);

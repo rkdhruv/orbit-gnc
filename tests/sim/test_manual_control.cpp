@@ -14,6 +14,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -21,7 +22,9 @@
 #include <stdexcept>
 #include <vector>
 
+#include "simcore/constants.hpp"
 #include "simcore/dynamics/force_sum.hpp"
+#include "simcore/dynamics/point_mass_gravity.hpp"
 #include "simcore/sim/manual_control.hpp"
 #include "simcore/sim/simulation.hpp"
 #include "simcore/vehicle/reaction_wheel.hpp"
@@ -177,4 +180,64 @@ TEST(ManualControl, RejectsInvalidInput) {
     EXPECT_THROW((void)simcore::manual_command(
                      cfg, ManualInput{0.0, Eigen::Vector3d(kNaN, 0.0, 0.0), false}, s),
                  std::invalid_argument);
+}
+
+// Non-orthogonal, redundant wheels: a 4-wheel pyramid, axes (+-s, 0, c) and (0, +-s, c) with
+// s = sin 30 deg, c = cos 30 deg (A has rank 3, so A A+ = I). Full pitch: the body torque
+// -A tau_m is exactly along +y, and the most-loaded wheel is at its 0.1 N m limit (the pseudo-
+// inverse authority T_y; the null space could add more, which this allocation doesn't use).
+TEST(ManualControl, PyramidWheelsGiveTorqueAboutTheRequestedAxis) {
+    const double sn = 0.5;
+    const double cs = std::sqrt(3.0) / 2.0;
+    VehicleConfig cfg = test_vehicle();
+    cfg.wheels = {simcore::ReactionWheel(Eigen::Vector3d(sn, 0.0, cs), 0.05, 0.1, 600.0),
+                  simcore::ReactionWheel(Eigen::Vector3d(-sn, 0.0, cs), 0.05, 0.1, 600.0),
+                  simcore::ReactionWheel(Eigen::Vector3d(0.0, sn, cs), 0.05, 0.1, 600.0),
+                  simcore::ReactionWheel(Eigen::Vector3d(0.0, -sn, cs), 0.05, 0.1, 600.0)};
+    VehicleState s = at_rest();
+    s.wheel_h_nms = {0.0, 0.0, 0.0, 0.0};
+    const VehicleCommand c =
+        simcore::manual_command(cfg, ManualInput{0.0, Eigen::Vector3d(0.0, 1.0, 0.0), false}, s);
+    Eigen::Vector3d tau_b = Eigen::Vector3d::Zero();
+    double peak = 0.0;
+    for (std::size_t j = 0; j < cfg.wheels.size(); ++j) {
+        tau_b -= c.wheel_torque_nm[j] * cfg.wheels[j].axis_body();
+        peak = std::max(peak, std::abs(c.wheel_torque_nm[j]));
+    }
+    EXPECT_GT(tau_b.y(), 0.0);
+    EXPECT_LE(std::abs(tau_b.x()), 1e-15);
+    EXPECT_LE(std::abs(tau_b.z()), 1e-15);
+    EXPECT_NEAR(peak, 0.1, 1e-15);
+}
+
+// Sample-and-hold stability (M3 review): the damping command tau = -k I w held for a time T gives
+// the discrete loop w+ = (1 - k T) w, stable only for k T < 2. A front end at 10 fps and 100x warp
+// holds each command for 10 s (k T = 5): it never settles (a limit cycle near tau_max T / I
+// = 0.1 * 10 / 450 = 2.2e-3 rad/s). fly_manual recomputes the command at least every
+// kManualHoldMax_s = 0.5 s (k T = 0.25, a monotone decay) whatever the frame: from w_z = 2e-3 the
+// wheel at its 0.1 N m limit needs 2e-3 * 450 / 0.1 = 9 s, then the tail decays at 22% per hold,
+// so the vehicle is on rails well within 20 frames (200 s). Holding for a whole frame instead
+// (hold = 500 ticks) is still not on rails after the same 20 frames.
+TEST(ManualControl, FlyManualKeepsDampingStableAtSlowFramesAndHighWarp) {
+    const VehicleConfig cfg = test_vehicle();
+    VehicleState s0 = at_rest();
+    s0.w_body = Eigen::Vector3d(0.0, 0.0, 2e-3);
+    const auto make = [&]() {
+        return Simulation(simcore::SimConfig{cfg, std::make_shared<simcore::PointMassGravity>(),
+                                             std::make_shared<simcore::ConstantBodyTorque>(
+                                                 Eigen::Vector3d::Zero()),
+                                             0.02, simcore::earth::mu},
+                          s0);
+    };
+    const ManualInput damp{0.0, Eigen::Vector3d::Zero(), true};
+    Simulation bounded = make();
+    Simulation per_frame = make();
+    for (int frame = 0; frame < 20; ++frame) {
+        simcore::fly_manual(bounded, damp, 500);  // 0.1 s frame at 100x = 500 ticks
+        simcore::fly_manual(per_frame, damp, 500, 500);
+    }
+    EXPECT_TRUE(bounded.snapshot().on_rails);
+    EXPECT_FALSE(per_frame.snapshot().on_rails);
+    EXPECT_GT(per_frame.snapshot().state.w_body.norm(), Simulation::kRailsMaxRate_radps);
+    EXPECT_EQ(simcore::kManualHoldMax_s, 0.5);
 }
