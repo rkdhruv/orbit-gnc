@@ -38,11 +38,32 @@ void text_km(const char* label, double metres) {
 
 }  // namespace
 
-void draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& cfg, const HudFrame& f) {
+HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& cfg,
+                   const HudFrame& f) {
+    HudAction action = HudAction::kNone;
     ImGui::SetNextWindowPos(ImVec2(16.0F, 16.0F), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(390.0F, 0.0F), ImGuiCond_FirstUseEver);
     ImGui::Begin("Orbit GNC");
     text_duration("Mission time", f.mission_time_s);
+
+    if (ImGui::CollapsingHeader("Flight", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("%-14s %.0fx  %s", "Time warp", f.warp,
+                    f.on_rails ? "(on rails: exact Kepler)" : "(integrating)");
+        std::array<char, 32> thr{};
+        std::snprintf(thr.data(), thr.size(), "throttle %.0f%%", 100.0 * f.throttle);
+        ImGui::ProgressBar(static_cast<float>(f.throttle), ImVec2(-1.0F, 0.0F), thr.data());
+        ImGui::Text("%-14s %s", "Rate damping", f.rate_damping ? "on" : "off");
+        ImGui::TextDisabled("Shift/Ctrl throttle  Z/X full/cut  W/S A/D Q/E rotate");
+        ImGui::TextDisabled("T damping  ,/. warp  (>100x needs rails: coasting, no J2)");
+        ImGui::Text("%-14s %s", "Environment", f.j2 ? "point mass + J2" : "two-body");
+        if (ImGui::Button("Restart: two-body")) {
+            action = HudAction::kRestartTwoBody;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Restart: with J2")) {
+            action = HudAction::kRestartJ2;
+        }
+    }
 
     if (ImGui::CollapsingHeader("Orbit", ImGuiTreeNodeFlags_DefaultOpen)) {
         text_km("Altitude", tm.altitude_m);
@@ -54,7 +75,8 @@ void draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& cfg, c
         } else {
             ImGui::Text("%-14s %.2f min", "Period", tm.period_s / 60.0);
         }
-        ImGui::TextDisabled("Osculating elements (two-body, wobble under J2)");
+        ImGui::TextDisabled(f.j2 ? "Osculating elements (instantaneous; wobble under J2)"
+                                 : "Osculating elements (instantaneous two-body orbit)");
         ImGui::Text("%-14s %.3f km", "a", tm.elements.a_m / 1000.0);
         ImGui::Text("%-14s %.6f", "e", tm.elements.e);
         ImGui::Text("%-14s %.4f deg", "i", tm.elements.i_rad * kRadToDeg);
@@ -102,6 +124,7 @@ void draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& cfg, c
     ImGui::Text("simcore %.*s  |  %d FPS%s", static_cast<int>(simcore::version().size()),
                 simcore::version().data(), f.fps, f.fell_behind ? "  (behind)" : "");
     ImGui::End();
+    return action;
 }
 
 }  // namespace simapp

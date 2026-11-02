@@ -20,6 +20,7 @@ public:
     [[nodiscard]] double axial_inertia_kgm2() const { return J_; }
     [[nodiscard]] double max_momentum_nms() const { return J_ * max_speed_; }  // J Omega_max
     [[nodiscard]] double max_speed_radps() const { return max_speed_; }
+    [[nodiscard]] double max_torque_nm() const { return max_torque_; }
 
     // Wheel speed relative to the body: Omega = h / J - a . w.
     [[nodiscard]] double relative_speed_radps(double h_nms, const Eigen::Vector3d& w_body) const;

@@ -5,8 +5,23 @@
 
 #include "simcore/check.hpp"
 #include "simcore/integrators/six_dof.hpp"
+#include "simcore/orbits/kepler.hpp"
 
 namespace simcore {
+
+bool is_coast(const VehicleCommand& c) {
+    for (const double u : c.throttle) {
+        if (u != 0.0) {
+            return false;
+        }
+    }
+    for (const double tau : c.wheel_torque_nm) {
+        if (tau != 0.0) {
+            return false;
+        }
+    }
+    return true;
+}
 
 Simulation::Simulation(SimConfig config, VehicleState initial)
     : cfg_(std::move(config)), t0_(initial.t), state_(std::move(initial)) {
@@ -33,6 +48,25 @@ void Simulation::step(std::int64_t n) {
             pending_.clear();
         }
         state_.t = t0_ + static_cast<double>(tick_) * h;  // the schedule, not an accumulated sum
+
+        const bool coasting = cfg_.rails_mu.has_value() && is_coast(command_);
+        if (!on_rails_ && coasting && state_.w_body.norm() <= kRailsMaxRate_radps) {
+            on_rails_ = true;
+            state_.w_body.setZero();
+            rails_entry_ = State{state_.t, state_.r_eci, state_.v_eci};
+        } else if (on_rails_ && !coasting) {
+            on_rails_ = false;  // integrate from the current rails state, so no jump
+        }
+        if (on_rails_) {
+            // Commands only change between step() calls, so the rest of this call is a coast:
+            // jump straight to its last tick.
+            tick_ += n - k;
+            state_.t = t0_ + static_cast<double>(tick_) * h;
+            const State s = kepler_propagate(rails_entry_, state_.t, *cfg_.rails_mu);
+            state_.r_eci = s.r_eci;
+            state_.v_eci = s.v_eci;
+            return;
+        }
         state_ = six_dof_rk4_step(cfg_.vehicle, *cfg_.forces, *cfg_.torques, command_, state_, h);
         ++tick_;
         state_.t = t0_ + static_cast<double>(tick_) * h;
@@ -40,7 +74,7 @@ void Simulation::step(std::int64_t n) {
 }
 
 Snapshot Simulation::snapshot() const {
-    return Snapshot{tick_, state_, command_};
+    return Snapshot{tick_, state_, command_, on_rails_};
 }
 
 }  // namespace simcore

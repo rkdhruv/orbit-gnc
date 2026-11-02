@@ -7,7 +7,9 @@
 
 #include <memory>
 #include <numbers>
+#include <optional>
 
+#include "controls.hpp"
 #include "hud.hpp"
 #include "scene.hpp"
 #include "simcore/constants.hpp"
@@ -15,6 +17,7 @@
 #include "simcore/dynamics/j2_gravity.hpp"
 #include "simcore/dynamics/point_mass_gravity.hpp"
 #include "simcore/orbits/elements.hpp"
+#include "simcore/sim/manual_control.hpp"
 #include "simcore/sim/simulation.hpp"
 #include "simcore/sim/telemetry.hpp"
 #include "simcore/sim/tick_scheduler.hpp"
@@ -31,8 +34,9 @@ constexpr double kDeg = std::numbers::pi / 180.0;
 
 // Default scenario: a 500 kg spacecraft with 300 kg of propellant, one 400 N, Isp 320 s main
 // engine along body +x and three reaction wheels on the body axes (their locked inertia is part
-// of the dry inertia), in a 420 km circular orbit at 51.6 deg, under point-mass gravity + J2.
-simcore::Simulation make_default_sim() {
+// of the dry inertia), in a 420 km circular orbit at 51.6 deg. Two-body gravity allows on-rails
+// time warp; with J2 the sim always integrates, so warp stays at or below kMaxIntegratedWarp.
+simcore::Simulation make_sim(bool j2) {
     const simcore::VehicleConfig vehicle{
         simcore::MassProperties(
             500.0, Eigen::Vector3d(300.0, 400.0, 450.0).asDiagonal(),
@@ -43,11 +47,15 @@ simcore::Simulation make_default_sim() {
          simcore::ReactionWheel(Eigen::Vector3d::UnitY(), 0.05, 0.1, 600.0),
          simcore::ReactionWheel(Eigen::Vector3d::UnitZ(), 0.05, 0.1, 600.0)}};
     auto forces = std::make_shared<simcore::ForceSum>();
-    forces->add(std::make_shared<simcore::PointMassGravity>())
-        .add(std::make_shared<simcore::J2Gravity>());
+    forces->add(std::make_shared<simcore::PointMassGravity>());
+    std::optional<double> rails_mu = simcore::earth::mu;
+    if (j2) {
+        forces->add(std::make_shared<simcore::J2Gravity>());
+        rails_mu.reset();
+    }
     const simcore::SimConfig cfg{
         vehicle, forces, std::make_shared<simcore::ConstantBodyTorque>(Eigen::Vector3d::Zero()),
-        0.02};
+        0.02, rails_mu};
 
     const simcore::Epoch t0 = simcore::Epoch::from_tt_seconds_since_j2000(830'000'000);
     const simcore::State orbit =
@@ -63,11 +71,17 @@ simcore::Simulation make_default_sim() {
                                                           {0.0, 0.0, 0.0}});
 }
 
+// The front end's own state; the simulation is only reached through submit / step / snapshot.
 struct App {
-    simcore::Simulation sim = make_default_sim();
-    simcore::TickScheduler scheduler{sim.config().tick_s};
+    explicit App(bool with_j2) : j2(with_j2), sim(make_sim(with_j2)) {}
+    bool j2;
+    simcore::Simulation sim;
+    // No practical tick cap: on rails a step() of any length is one Kepler solve, and integrated
+    // warp is limited to kMaxIntegratedWarp by the controls instead.
+    simcore::TickScheduler scheduler{sim.config().tick_s, 0.25, 1'000'000'000'000};
     simcore::Epoch t0 = sim.snapshot().state.t;
     simapp::Scene scene;
+    simapp::Controls controls;
     bool fell_behind = false;
 };
 
@@ -77,13 +91,27 @@ std::unique_ptr<App> g_app;  // the browser's main-loop callback takes no argume
 // requestAnimationFrame callback (the browser can't run a blocking while-loop).
 void UpdateDrawFrame() {
     App& app = *g_app;
+    const auto frame_dt = static_cast<double>(GetFrameTime());
+
+    // Pilot input -> command for the next ticks. ImGui's capture flags are from the previous
+    // frame, which is what input handling needs.
+    if (!ImGui::GetIO().WantCaptureKeyboard) {
+        app.controls.handle_keys(frame_dt);
+    }
+    const simcore::VehicleConfig& vehicle = app.sim.config().vehicle;
+    const simcore::VehicleCommand cmd =
+        simcore::manual_command(vehicle, app.controls.input(), app.sim.snapshot().state);
+    app.sim.submit(cmd);
+    // Fast warp only on rails: a coast in a two-body environment.
+    const bool can_rail = app.sim.config().rails_mu.has_value() && simcore::is_coast(cmd);
+    app.controls.clamp_warp(can_rail ? simapp::kWarpLevels.back() : simapp::kMaxIntegratedWarp);
+
     const simcore::TickScheduler::FrameTicks ft =
-        app.scheduler.ticks_for_frame(static_cast<double>(GetFrameTime()));
+        app.scheduler.ticks_for_frame(frame_dt, app.controls.warp());
     app.sim.step(ft.ticks);
     app.fell_behind = ft.fell_behind;
     const simcore::Snapshot snap = app.sim.snapshot();
 
-    // ImGui's capture flag is from the previous frame, which is what input handling needs.
     app.scene.handle_input(!ImGui::GetIO().WantCaptureMouse);
 
     BeginDrawing();
@@ -91,13 +119,18 @@ void UpdateDrawFrame() {
     app.scene.draw(snap);
 
     rlImGuiBegin();
-    simapp::draw_hud(simcore::telemetry(app.sim.config().vehicle, snap.state),
-                     app.sim.config().vehicle,
-                     simapp::HudFrame{snap.state.t - app.t0, snap.tick,
-                                      app.scene.camera_distance_m(), GetFPS(), app.fell_behind});
+    const simapp::HudAction action = simapp::draw_hud(
+        simcore::telemetry(vehicle, snap.state), vehicle,
+        simapp::HudFrame{snap.state.t - app.t0, snap.tick, app.scene.camera_distance_m(), GetFPS(),
+                         app.fell_behind, app.controls.warp(), app.controls.throttle(),
+                         app.controls.rate_damping(), snap.on_rails, app.j2});
     rlImGuiEnd();
 
     EndDrawing();
+
+    if (action != simapp::HudAction::kNone) {
+        g_app = std::make_unique<App>(action == simapp::HudAction::kRestartJ2);
+    }
 }
 
 }  // namespace
@@ -110,7 +143,7 @@ int main() {  // NOLINT(bugprone-exception-escape)
                    FLAG_WINDOW_RESIZABLE);
     InitWindow(kWindowWidth, kWindowHeight, "Orbit GNC");
     rlImGuiSetup(true);  // true = dark theme
-    g_app = std::make_unique<App>();
+    g_app = std::make_unique<App>(false);
 
 #if defined(__EMSCRIPTEN__)
     emscripten_set_main_loop(UpdateDrawFrame, 0, 1);

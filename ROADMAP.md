@@ -45,7 +45,7 @@ through the test-first loop in CLAUDE.md.
 - [x] raylib 3D scene: Earth, spacecraft model with attitude, orbit line
   - Floating origin: positions stay double in simcore, and only camera-relative offsets become float.
 - [x] Dear ImGui HUD: orbit elements, attitude, fuel, Δv remaining (rocket equation), wheel momentum
-- [ ] Manual control: throttle, RCS rotation; time warp
+- [x] Manual control: throttle, rotation (reaction wheels; no RCS thrusters yet); time warp
   - On rails (Kepler) while coasting with perturbations off; integrated while thrusting or when J2/drag are on.
   - Switching between the two must be continuous.
 - [ ] Deterministic replay: record timestamped inputs per sim tick, re-run identically

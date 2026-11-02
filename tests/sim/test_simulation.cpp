@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -57,7 +58,8 @@ VehicleConfig test_vehicle() {
 
 SimConfig free_space_config(double tick_s = 0.02) {
     return SimConfig{test_vehicle(), std::make_shared<simcore::ForceSum>(),
-                     std::make_shared<ConstantBodyTorque>(Eigen::Vector3d::Zero()), tick_s};
+                     std::make_shared<ConstantBodyTorque>(Eigen::Vector3d::Zero()), tick_s,
+                     std::nullopt};
 }
 
 VehicleState at_rest() {
@@ -119,7 +121,7 @@ TEST(Simulation, ClockFollowsTheTickScheduleWithoutDrift) {
 TEST(Simulation, MatchesTheBareStepLoopAndIgnoresFrameRate) {
     const auto gravity = std::make_shared<simcore::PointMassGravity>();
     const auto no_torque = std::make_shared<ConstantBodyTorque>(Eigen::Vector3d::Zero());
-    const SimConfig cfg{test_vehicle(), gravity, no_torque, 0.02};
+    const SimConfig cfg{test_vehicle(), gravity, no_torque, 0.02, std::nullopt};
     const simcore::State orbit = orbit_fixtures::circular_initial_state();
     VehicleState init = at_rest();
     init.t = orbit.t;

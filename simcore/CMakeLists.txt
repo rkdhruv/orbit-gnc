@@ -16,6 +16,7 @@ add_library(simcore STATIC
     src/orbits/epoch.cpp
     src/orbits/kepler.cpp
     src/orbits/orbit_track.cpp
+    src/sim/manual_control.cpp
     src/sim/simulation.cpp
     src/sim/telemetry.cpp
     src/sim/tick_scheduler.cpp
