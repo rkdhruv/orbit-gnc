@@ -20,7 +20,9 @@ AttitudeTarget hold_target(HoldMode mode, const State& orbit) {
     const Eigen::Vector3d v_hat = v.normalized();
     const Eigen::Vector3d h_hat = h.normalized();
 
-    Eigen::Vector3d x;
+    // Initialised (to prograde) although the switch below is exhaustive: GCC can't rule out an
+    // out-of-range enum value and warns that x may be used uninitialised.
+    Eigen::Vector3d x = v_hat;
     Eigen::Vector3d ref = r_hat;  // roll reference: body z toward radial-out
     switch (mode) {
         case HoldMode::kPrograde:
