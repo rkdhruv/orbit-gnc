@@ -44,7 +44,10 @@ void Simulation::step(std::int64_t n) {
     for (std::int64_t k = 0; k < n; ++k) {
         // Commands are whole replacements applied in submission order, so the last one wins.
         if (!pending_.empty()) {
-            command_ = pending_.back();
+            if (pending_.back() != command_) {
+                command_ = pending_.back();
+                log_.push_back(LoggedCommand{tick_, command_});  // takes effect at this tick
+            }
             pending_.clear();
         }
         state_.t = t0_ + static_cast<double>(tick_) * h;  // the schedule, not an accumulated sum

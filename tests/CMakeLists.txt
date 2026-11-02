@@ -27,6 +27,7 @@ add_executable(simcore_tests
     sim/test_telemetry.cpp
     sim/test_rails.cpp
     sim/test_manual_control.cpp
+    sim/test_replay.cpp
     simapp/test_render_frame.cpp)
 target_link_libraries(simcore_tests PRIVATE simcore GTest::gtest_main orbit_warnings)
 # simapp's header-only, raylib-free helpers (render_frame.hpp) are tested here too.

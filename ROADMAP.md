@@ -48,7 +48,7 @@ through the test-first loop in CLAUDE.md.
 - [x] Manual control: throttle, rotation (reaction wheels; no RCS thrusters yet); time warp
   - On rails (Kepler) while coasting with perturbations off; integrated while thrusting or when J2/drag are on.
   - Switching between the two must be continuous.
-- [ ] Deterministic replay: record timestamped inputs per sim tick, re-run identically
+- [x] Deterministic replay: record timestamped inputs per sim tick, re-run identically
 - [ ] Emscripten build deployed to GitHub Pages from CI
   - Enable exception catching (`-sDISABLE_EXCEPTION_CATCHING=0`) so `SIMCORE_CHECK` failures can be shown in the browser rather than aborting it.
 - **Done when:**

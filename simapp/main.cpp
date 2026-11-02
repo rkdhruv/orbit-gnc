@@ -8,6 +8,7 @@
 #include <memory>
 #include <numbers>
 #include <optional>
+#include <string>
 
 #include "controls.hpp"
 #include "hud.hpp"
@@ -18,6 +19,7 @@
 #include "simcore/dynamics/point_mass_gravity.hpp"
 #include "simcore/orbits/elements.hpp"
 #include "simcore/sim/manual_control.hpp"
+#include "simcore/sim/replay.hpp"
 #include "simcore/sim/simulation.hpp"
 #include "simcore/sim/telemetry.hpp"
 #include "simcore/sim/tick_scheduler.hpp"
@@ -76,6 +78,9 @@ struct App {
     explicit App(bool with_j2) : j2(with_j2), sim(make_sim(with_j2)) {}
     bool j2;
     simcore::Simulation sim;
+    simcore::VehicleState initial =
+        sim.snapshot().state;  // with the input log, replays the session
+    std::string replay_status;
     // No practical tick cap: on rails a step() of any length is one Kepler solve, and integrated
     // warp is limited to kMaxIntegratedWarp by the controls instead.
     simcore::TickScheduler scheduler{sim.config().tick_s, 0.25, 1'000'000'000'000};
@@ -86,6 +91,33 @@ struct App {
 };
 
 std::unique_ptr<App> g_app;  // the browser's main-loop callback takes no arguments
+
+// The first field in which two snapshots differ (bit for bit), or nullptr if none do.
+const char* first_difference(const simcore::Snapshot& a, const simcore::Snapshot& b) {
+    if (a.tick != b.tick) return "tick";
+    if (a.state.t != b.state.t) return "time";
+    if (a.state.r_eci != b.state.r_eci) return "position";
+    if (a.state.v_eci != b.state.v_eci) return "velocity";
+    if (a.state.q_body_to_eci.coeffs() != b.state.q_body_to_eci.coeffs()) return "attitude";
+    if (a.state.w_body != b.state.w_body) return "body rates";
+    if (a.state.propellant_kg != b.state.propellant_kg) return "propellant";
+    if (a.state.wheel_h_nms != b.state.wheel_h_nms) return "wheel momenta";
+    if (a.command != b.command) return "command";
+    if (a.on_rails != b.on_rails) return "rails mode";
+    return nullptr;
+}
+
+// Re-run the whole session from its initial state and input log and compare with the live sim.
+std::string verify_replay(const App& app) {
+    const simcore::Snapshot live = app.sim.snapshot();
+    const std::vector<simcore::LoggedCommand> log = app.sim.input_log();
+    const simcore::Snapshot again = simcore::replay(app.sim.config(), app.initial, log, live.tick);
+    const char* diff = first_difference(live, again);
+    return diff == nullptr ? "bit-identical at tick " + std::to_string(live.tick) + " (" +
+                                 std::to_string(log.size()) +
+                                 (log.size() == 1 ? " logged command)" : " logged commands)")
+                           : std::string("MISMATCH: ") + diff + " differs";
+}
 
 // One frame of the app. Shared by the desktop loop and the browser's
 // requestAnimationFrame callback (the browser can't run a blocking while-loop).
@@ -123,12 +155,15 @@ void UpdateDrawFrame() {
         simcore::telemetry(vehicle, snap.state), vehicle,
         simapp::HudFrame{snap.state.t - app.t0, snap.tick, app.scene.camera_distance_m(), GetFPS(),
                          app.fell_behind, app.controls.warp(), app.controls.throttle(),
-                         app.controls.rate_damping(), snap.on_rails, app.j2});
+                         app.controls.rate_damping(), snap.on_rails, app.j2,
+                         app.replay_status.c_str()});
     rlImGuiEnd();
 
     EndDrawing();
 
-    if (action != simapp::HudAction::kNone) {
+    if (action == simapp::HudAction::kVerifyReplay) {
+        app.replay_status = verify_replay(app);
+    } else if (action != simapp::HudAction::kNone) {
         g_app = std::make_unique<App>(action == simapp::HudAction::kRestartJ2);
     }
 }

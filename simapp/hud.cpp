@@ -63,6 +63,13 @@ HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& c
         if (ImGui::Button("Restart: with J2")) {
             action = HudAction::kRestartJ2;
         }
+        if (ImGui::Button("Verify replay")) {
+            action = HudAction::kVerifyReplay;
+        }
+        ImGui::SameLine();
+        ImGui::TextWrapped("%s", f.replay_status[0] != '\0'
+                                     ? f.replay_status
+                                     : "re-run this session from its input log");
     }
 
     if (ImGui::CollapsingHeader("Orbit", ImGuiTreeNodeFlags_DefaultOpen)) {

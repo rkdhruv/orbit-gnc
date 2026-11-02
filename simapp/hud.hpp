@@ -19,11 +19,12 @@ struct HudFrame {
     double throttle;
     bool rate_damping;
     bool on_rails;
-    bool j2;  // environment includes J2 (no rails warp)
+    bool j2;                    // environment includes J2 (no rails warp)
+    const char* replay_status;  // result of the last "Verify replay", or "" if none yet
 };
 
 // What the pilot clicked this frame.
-enum class HudAction : std::uint8_t { kNone, kRestartTwoBody, kRestartJ2 };
+enum class HudAction : std::uint8_t { kNone, kRestartTwoBody, kRestartJ2, kVerifyReplay };
 
 // The ImGui panel: Flight, Orbit, Vehicle, Attitude and Wheels sections. Only formats telemetry
 // (simcore computes it); SI is converted to km, minutes and degrees here, at the UI.

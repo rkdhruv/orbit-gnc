@@ -27,6 +27,13 @@ struct SimConfig {
 // True if the command fires nothing: every throttle and wheel torque command is exactly zero.
 bool is_coast(const VehicleCommand& c);
 
+// One input-log entry: `command` took effect at the start of tick `tick` (and held until the next
+// entry). The initial all-zero command is part of the starting conditions and isn't logged.
+struct LoggedCommand {
+    std::int64_t tick;
+    VehicleCommand command;
+};
+
 // A copy of everything the front end may read, taken between ticks.
 struct Snapshot {
     std::int64_t tick{0};    // ticks completed
@@ -68,6 +75,9 @@ public:
     static constexpr double kRailsMaxRate_radps = 1e-4;  // ~0.006 deg/s
 
     [[nodiscard]] Snapshot snapshot() const;
+    // Every change of the command in effect, in tick order: with the initial state, enough to
+    // reproduce the session exactly (see replay()). A copy, like snapshot().
+    [[nodiscard]] std::vector<LoggedCommand> input_log() const { return log_; }
     [[nodiscard]] const SimConfig& config() const { return cfg_; }
 
 private:
@@ -77,6 +87,7 @@ private:
     VehicleState state_;
     VehicleCommand command_;
     std::vector<VehicleCommand> pending_;
+    std::vector<LoggedCommand> log_;
     bool on_rails_{false};
     State rails_entry_;  // translational state when the vehicle went on rails
 };

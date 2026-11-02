@@ -38,6 +38,8 @@ struct VehicleState {
 struct VehicleCommand {
     std::vector<double> throttle;
     std::vector<double> wheel_torque_nm;
+
+    bool operator==(const VehicleCommand&) const = default;  // exact, element by element
 };
 
 }  // namespace simcore
