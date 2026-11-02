@@ -44,7 +44,7 @@ through the test-first loop in CLAUDE.md.
   - It never touches internals; this is the architecture rule made concrete.
 - [x] raylib 3D scene: Earth, spacecraft model with attitude, orbit line
   - Floating origin: positions stay double in simcore, and only camera-relative offsets become float.
-- [ ] Dear ImGui HUD: orbit elements, attitude, fuel, Δv remaining (rocket equation), wheel momentum
+- [x] Dear ImGui HUD: orbit elements, attitude, fuel, Δv remaining (rocket equation), wheel momentum
 - [ ] Manual control: throttle, RCS rotation; time warp
   - On rails (Kepler) while coasting with perturbations off; integrated while thrusting or when J2/drag are on.
   - Switching between the two must be continuous.

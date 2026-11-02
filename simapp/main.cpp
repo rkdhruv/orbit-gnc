@@ -8,6 +8,7 @@
 #include <memory>
 #include <numbers>
 
+#include "hud.hpp"
 #include "scene.hpp"
 #include "simcore/constants.hpp"
 #include "simcore/dynamics/force_sum.hpp"
@@ -15,8 +16,8 @@
 #include "simcore/dynamics/point_mass_gravity.hpp"
 #include "simcore/orbits/elements.hpp"
 #include "simcore/sim/simulation.hpp"
+#include "simcore/sim/telemetry.hpp"
 #include "simcore/sim/tick_scheduler.hpp"
-#include "simcore/version.hpp"
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
@@ -28,8 +29,9 @@ constexpr int kWindowWidth = 1280;
 constexpr int kWindowHeight = 720;
 constexpr double kDeg = std::numbers::pi / 180.0;
 
-// Default scenario: a 500 kg spacecraft with 300 kg of propellant and one 400 N, Isp 320 s main
-// engine along body +x, in a 420 km circular orbit at 51.6 deg, under point-mass gravity + J2.
+// Default scenario: a 500 kg spacecraft with 300 kg of propellant, one 400 N, Isp 320 s main
+// engine along body +x and three reaction wheels on the body axes (their locked inertia is part
+// of the dry inertia), in a 420 km circular orbit at 51.6 deg, under point-mass gravity + J2.
 simcore::Simulation make_default_sim() {
     const simcore::VehicleConfig vehicle{
         simcore::MassProperties(
@@ -37,7 +39,9 @@ simcore::Simulation make_default_sim() {
             simcore::PropellantTank{300.0, Eigen::Vector3d(30.0, 30.0, 20.0).asDiagonal()}),
         {simcore::Thruster(400.0, 320.0, Eigen::Vector3d(-1.0, 0.0, 0.0),
                            Eigen::Vector3d::UnitX())},
-        {}};
+        {simcore::ReactionWheel(Eigen::Vector3d::UnitX(), 0.05, 0.1, 600.0),
+         simcore::ReactionWheel(Eigen::Vector3d::UnitY(), 0.05, 0.1, 600.0),
+         simcore::ReactionWheel(Eigen::Vector3d::UnitZ(), 0.05, 0.1, 600.0)}};
     auto forces = std::make_shared<simcore::ForceSum>();
     forces->add(std::make_shared<simcore::PointMassGravity>())
         .add(std::make_shared<simcore::J2Gravity>());
@@ -56,7 +60,7 @@ simcore::Simulation make_default_sim() {
                                                           Eigen::Quaterniond::Identity(),
                                                           Eigen::Vector3d::Zero(),
                                                           300.0,
-                                                          {}});
+                                                          {0.0, 0.0, 0.0}});
 }
 
 struct App {
@@ -87,20 +91,10 @@ void UpdateDrawFrame() {
     app.scene.draw(snap);
 
     rlImGuiBegin();
-    ImGui::SetNextWindowPos(ImVec2(16.0F, 16.0F), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Orbit GNC");
-    ImGui::Text("Mission time  %.2f s", snap.state.t - app.t0);
-    ImGui::Text("Tick          %lld", static_cast<long long>(snap.tick));
-    ImGui::Text("Altitude      %.3f km",
-                (snap.state.r_eci.norm() - simcore::earth::radius) / 1000.0);
-    ImGui::Text("Speed         %.3f m/s", snap.state.v_eci.norm());
-    ImGui::Text("Propellant    %.1f kg", snap.state.propellant_kg);
-    ImGui::Text("Camera        %.3g km", app.scene.camera_distance_m() / 1000.0);
-    ImGui::TextDisabled("drag: turn view   scroll: zoom");
-    ImGui::Separator();
-    ImGui::Text("simcore %.*s  |  %d FPS%s", static_cast<int>(simcore::version().size()),
-                simcore::version().data(), GetFPS(), app.fell_behind ? "  (behind)" : "");
-    ImGui::End();
+    simapp::draw_hud(simcore::telemetry(app.sim.config().vehicle, snap.state),
+                     app.sim.config().vehicle,
+                     simapp::HudFrame{snap.state.t - app.t0, snap.tick,
+                                      app.scene.camera_distance_m(), GetFPS(), app.fell_behind});
     rlImGuiEnd();
 
     EndDrawing();
