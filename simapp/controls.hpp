@@ -24,11 +24,16 @@ inline constexpr std::int64_t kMaxIntegratedTicksPerFrame = 5000;
 // stays within the default vehicle's 0.1 N m wheels; a large slew saturates them, and the wheel
 // limit then sets how fast it turns.
 inline constexpr simcore::PdGains kHoldGains{0.05, 0.7};
+// LQR alternative (Bryson's rule): the largest acceptable attitude error and rate; the torque
+// limit is the wheels' own per-axis authority, so the hold never asks for more than they have.
+inline constexpr double kLqrMaxAngle_rad = 0.5235987755982988;     // 30 deg
+inline constexpr double kLqrMaxRate_radps = 0.008726646259971648;  // 0.5 deg/s
 
 // Keyboard state the pilot builds up, KSP-style:
 //   Shift / Ctrl  throttle up / down (50% per second)    Z / X  full throttle / cut
 //   W / S  pitch (nose down / up)   A / D  yaw left / right   Q / E  roll left / right
 //   T  rate damping on / off        R  cycle attitude hold (off, prograde, ..., radial in)
+//   L  hold controller PD / LQR
 //   , / .  warp down / up
 // An attitude hold, when on, replaces rate damping; the rotate keys override it while held.
 // Body axes: x forward (the engine thrusts along +x), y left, z up.
@@ -45,6 +50,8 @@ public:
     [[nodiscard]] bool rate_damping() const { return rate_damping_; }
     [[nodiscard]] std::optional<simcore::HoldMode> hold() const { return hold_; }
     void set_hold(std::optional<simcore::HoldMode> mode) { hold_ = mode; }
+    [[nodiscard]] bool use_lqr() const { return use_lqr_; }
+    void toggle_lqr() { use_lqr_ = !use_lqr_; }
 
 private:
     double throttle_{0.0};
@@ -52,6 +59,7 @@ private:
     bool rate_damping_{true};
     std::size_t warp_index_{0};
     std::optional<simcore::HoldMode> hold_;
+    bool use_lqr_{false};
 };
 
 }  // namespace simapp

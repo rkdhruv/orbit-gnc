@@ -21,6 +21,7 @@ struct HudFrame {
     double throttle;
     bool rate_damping;
     std::optional<simcore::HoldMode> hold;  // active attitude hold, if any
+    bool use_lqr;                           // hold controller: LQR (true) or PD
     bool on_rails;
     bool j2;                    // environment includes J2 (no rails warp)
     const char* replay_status;  // result of the last "Verify replay", or "" if none yet
@@ -32,6 +33,7 @@ enum class HudAction : std::uint8_t {
     kRestartTwoBody,
     kRestartJ2,
     kVerifyReplay,
+    kToggleController,
     kHoldOff,
     kHoldPrograde,  // the kHold* values after kHoldOff follow HoldMode's order
     kHoldRetrograde,

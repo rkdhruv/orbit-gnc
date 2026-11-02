@@ -59,7 +59,7 @@ through the test-first loop in CLAUDE.md.
 ## M4: Attitude control and autopilot
 - [x] PD attitude controller on the quaternion error, with gyroscopic compensation
   - Hold modes: prograde, retrograde, normal, antinormal, radial out, radial in.
-- [ ] LQR linearised about the hold attitude
+- [x] LQR linearised about the hold attitude (CARE by the matrix sign function; Bryson weights)
 - [ ] Wheel momentum management: desaturation with thrusters when wheels approach their limit
 - [ ] Maneuver nodes with the predicted post-burn orbit
   - The autopilot executes them: point, wait, burn centred on the node, cut off on achieved Δv.

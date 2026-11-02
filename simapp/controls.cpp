@@ -38,6 +38,9 @@ void Controls::handle_keys(double frame_dt_s) {
     if (IsKeyPressed(KEY_T)) {
         rate_damping_ = !rate_damping_;
     }
+    if (IsKeyPressed(KEY_L)) {
+        use_lqr_ = !use_lqr_;
+    }
     if (IsKeyPressed(KEY_R)) {  // off -> prograde -> ... -> radial in -> off
         if (!hold_) {
             hold_ = simcore::HoldMode::kPrograde;

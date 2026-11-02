@@ -60,6 +60,13 @@ HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& c
             "prograde", "retrograde", "normal", "antinormal", "radial out", "radial in"};
         ImGui::Text("%-14s %s", "Attitude hold",
                     f.hold ? kHoldNames.at(static_cast<std::size_t>(*f.hold)) : "off");
+        ImGui::Text("%-14s %s", "Controller",
+                    f.use_lqr ? "LQR (Bryson: 30 deg, 0.5 deg/s, wheel limit)"
+                              : "PD (wn 0.05 rad/s, zeta 0.7)");
+        ImGui::SameLine();
+        if (ImGui::SmallButton(f.use_lqr ? "use PD" : "use LQR")) {
+            action = HudAction::kToggleController;
+        }
         static constexpr std::array<const char*, 7> kHoldButtons{"Off",  "Pro",   "Retro", "Norm",
                                                                  "Anti", "R-out", "R-in"};
         for (std::size_t i = 0; i < kHoldButtons.size(); ++i) {
@@ -71,7 +78,7 @@ HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& c
             }
         }
         ImGui::TextDisabled("Shift/Ctrl throttle  Z/X full/cut  W/S A/D Q/E rotate");
-        ImGui::TextDisabled("T damping  R hold  ,/. warp  (>100x: rails, no hold, no J2)");
+        ImGui::TextDisabled("T damping  R hold  L PD/LQR  ,/. warp  (>100x: rails, no hold)");
         ImGui::Text("%-14s %s", "Environment", f.j2 ? "point mass + J2" : "two-body");
         if (ImGui::Button("Restart: two-body")) {
             action = HudAction::kRestartTwoBody;

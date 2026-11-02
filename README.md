@@ -96,3 +96,20 @@ Each row is a GoogleTest assertion; the bound in the Reference column is what th
 | Replay of a flown session (3000 frames, burns, warp on rails) | bit-identical on the same machine | bit-identical |
 | Rate damping at 10 fps and 100x warp (command held ≤ 0.5 s) | stable, reaches rails | on rails within 200 s (held a whole frame: never) |
 | Impact from a 100 km drop vs the M1 event finder | stops within one tick after | t_ref ≤ t_stop < t_ref + 0.02 s |
+| **M4: attitude control and autopilot** | | |
+| PD 10° step (ωn = 0.1 rad/s, ζ = 0.7): overshoot / peak time | 4.5988% / 43.99 s (second order) | 4.5993% / 43.80 s |
+| Prograde hold, 420 km, 300 s | body x on the velocity (< 0.01°) | 1.7e-6° |
+| CARE (matrix sign function), scalar x' = x + u | P = 1 + √2 | within 1e-12 |
+| LQR gains vs the per-axis closed form | k1 = √(qθ/r), k2 = √((2m√(qθr) + qω)/r) | within 1e-9 |
+
+PD vs LQR, 30° skew-axis slew on the default vehicle (0.1 N·m wheels, I = diag(300, 400, 450) kg·m²):
+
+| Controller | Settle (< 0.1°) | Overshoot | Wheel effort ∫Σ\|τ\| dt | Peak torque requested |
+|---|---|---|---|---|
+| PD, ωn = 0.05 rad/s, ζ = 0.7 | 157 s | 4.09% | 14.96 N·m·s | 0.393 N·m (saturates the 0.1 N·m wheels) |
+| LQR, Bryson (30°, 0.5°/s, 0.1 N·m) | 323 s | 0.00% | 5.74 N·m·s | 0.067 N·m (never saturates) |
+
+PD's bandwidth-chosen gains ignore the actuator: it spends the slew pinned at the wheel limit, which
+makes it faster but costs 2.6× the wheel effort and overshoots. LQR's Bryson weights put the
+torque limit into the design (an error of 30° asks for exactly 0.1 N·m), so it stays linear and
+critically damped, at half the speed.

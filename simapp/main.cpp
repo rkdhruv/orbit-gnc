@@ -5,8 +5,10 @@
 #include <raylib.h>
 #include <rlImGui.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <numbers>
 #include <optional>
@@ -21,6 +23,7 @@
 #include "simcore/dynamics/j2_gravity.hpp"
 #include "simcore/dynamics/point_mass_gravity.hpp"
 #include "simcore/gnc/attitude_control.hpp"
+#include "simcore/gnc/wheel_allocation.hpp"
 #include "simcore/orbits/elements.hpp"
 #include "simcore/sim/manual_control.hpp"
 #include "simcore/sim/replay.hpp"
@@ -137,13 +140,27 @@ simcore::Telemetry update_sim(App& app, double frame_dt) {
     // The control law for this frame: an attitude hold if one is on (and the rotate keys are
     // idle and there is an orbit frame), otherwise manual flight with optional rate damping.
     const std::optional<simcore::HoldMode> hold = app.controls.hold();
-    const simcore::ControlLaw law = [&vehicle, input, hold](const simcore::VehicleState& s) {
+    const bool use_lqr = app.controls.use_lqr();
+    const simcore::ControlLaw law = [&vehicle, input, hold,
+                                     use_lqr](const simcore::VehicleState& s) {
         const bool has_frame =
             s.r_eci.cross(s.v_eci).norm() > 1e-12 * s.r_eci.norm() * s.v_eci.norm();
         if (hold && input.rotate == Eigen::Vector3d::Zero() && has_frame) {
+            // Gains from the current inertia (it changes as propellant burns).
+            const Eigen::Matrix3d I = vehicle.mass.inertia_kgm2(s.propellant_kg);
+            double tau_max = std::numeric_limits<double>::infinity();
+            for (int k = 0; k < 3; ++k) {
+                tau_max = std::min(tau_max, simcore::wheel_axis_authority_nm(vehicle, k));
+            }
+            const simcore::AttitudeGains gains =
+                use_lqr && tau_max > 0.0
+                    ? simcore::lqr_attitude_gains_bryson(
+                          I, simcore::BrysonLimits{simapp::kLqrMaxAngle_rad,
+                                                   simapp::kLqrMaxRate_radps, tau_max})
+                    : simcore::pd_gains(I, simapp::kHoldGains);
             return simcore::attitude_command(
                 vehicle, s, simcore::hold_target(*hold, simcore::State{s.t, s.r_eci, s.v_eci}),
-                simapp::kHoldGains, input.throttle);
+                gains, input.throttle);
         }
         return simcore::manual_command(vehicle, input, s);
     };
@@ -213,14 +230,16 @@ void UpdateDrawFrame() {
                   simapp::HudFrame{snap.state.t - app.t0, snap.tick, app.scene.camera_distance_m(),
                                    GetFPS(), app.fell_behind, app.controls.warp(),
                                    app.controls.throttle(), app.controls.rate_damping(),
-                                   app.controls.hold(), snap.on_rails, app.j2,
-                                   app.replay_status.c_str()})
+                                   app.controls.hold(), app.controls.use_lqr(), snap.on_rails,
+                                   app.j2, app.replay_status.c_str()})
             : draw_error(app.error, app.j2);
     rlImGuiEnd();
 
     EndDrawing();
 
-    if (action >= simapp::HudAction::kHoldOff) {
+    if (action == simapp::HudAction::kToggleController) {
+        app.controls.toggle_lqr();
+    } else if (action >= simapp::HudAction::kHoldOff) {
         const auto i = static_cast<int>(action) - static_cast<int>(simapp::HudAction::kHoldOff);
         app.controls.set_hold(
             i == 0 ? std::nullopt
