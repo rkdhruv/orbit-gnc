@@ -8,6 +8,7 @@
 #include <memory>
 #include <numbers>
 
+#include "scene.hpp"
 #include "simcore/constants.hpp"
 #include "simcore/dynamics/force_sum.hpp"
 #include "simcore/dynamics/j2_gravity.hpp"
@@ -62,6 +63,7 @@ struct App {
     simcore::Simulation sim = make_default_sim();
     simcore::TickScheduler scheduler{sim.config().tick_s};
     simcore::Epoch t0 = sim.snapshot().state.t;
+    simapp::Scene scene;
     bool fell_behind = false;
 };
 
@@ -77,8 +79,12 @@ void UpdateDrawFrame() {
     app.fell_behind = ft.fell_behind;
     const simcore::Snapshot snap = app.sim.snapshot();
 
+    // ImGui's capture flag is from the previous frame, which is what input handling needs.
+    app.scene.handle_input(!ImGui::GetIO().WantCaptureMouse);
+
     BeginDrawing();
-    ClearBackground(Color{.r = 12, .g = 14, .b = 22, .a = 255});
+    ClearBackground(Color{.r = 4, .g = 5, .b = 10, .a = 255});
+    app.scene.draw(snap);
 
     rlImGuiBegin();
     ImGui::SetNextWindowPos(ImVec2(16.0F, 16.0F), ImGuiCond_FirstUseEver);
@@ -89,6 +95,8 @@ void UpdateDrawFrame() {
                 (snap.state.r_eci.norm() - simcore::earth::radius) / 1000.0);
     ImGui::Text("Speed         %.3f m/s", snap.state.v_eci.norm());
     ImGui::Text("Propellant    %.1f kg", snap.state.propellant_kg);
+    ImGui::Text("Camera        %.3g km", app.scene.camera_distance_m() / 1000.0);
+    ImGui::TextDisabled("drag: turn view   scroll: zoom");
     ImGui::Separator();
     ImGui::Text("simcore %.*s  |  %d FPS%s", static_cast<int>(simcore::version().size()),
                 simcore::version().data(), GetFPS(), app.fell_behind ? "  (behind)" : "");

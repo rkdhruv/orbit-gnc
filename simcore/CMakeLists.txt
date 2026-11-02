@@ -15,6 +15,7 @@ add_library(simcore STATIC
     src/orbits/elements.cpp
     src/orbits/epoch.cpp
     src/orbits/kepler.cpp
+    src/orbits/orbit_track.cpp
     src/sim/simulation.cpp
     src/sim/tick_scheduler.cpp
     src/vehicle/mass_properties.cpp

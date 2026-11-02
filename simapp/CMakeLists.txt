@@ -1,4 +1,4 @@
-add_executable(simapp main.cpp)
+add_executable(simapp main.cpp scene.cpp)
 target_link_libraries(simapp PRIVATE simcore rlimgui orbit_warnings)
 
 if(EMSCRIPTEN)

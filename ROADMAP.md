@@ -42,7 +42,7 @@ through the test-first loop in CLAUDE.md.
 - [x] Sim facade: fixed-timestep sim loop decoupled from the frame rate
   - `simapp` sends commands through a queue and reads snapshots.
   - It never touches internals; this is the architecture rule made concrete.
-- [ ] raylib 3D scene: Earth, spacecraft model with attitude, orbit line
+- [x] raylib 3D scene: Earth, spacecraft model with attitude, orbit line
   - Floating origin: positions stay double in simcore, and only camera-relative offsets become float.
 - [ ] Dear ImGui HUD: orbit elements, attitude, fuel, Δv remaining (rocket equation), wheel momentum
 - [ ] Manual control: throttle, RCS rotation; time warp
