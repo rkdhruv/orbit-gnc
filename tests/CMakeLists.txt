@@ -13,9 +13,11 @@ add_executable(simcore_tests
     dynamics/test_j2_gravity.cpp
     dynamics/test_exponential_drag.cpp
     dynamics/test_rigid_body.cpp
+    dynamics/test_gravity_gradient.cpp
     integrators/test_attitude.cpp
     vehicle/test_mass_and_thrusters.cpp
     vehicle/test_reaction_wheels.cpp
+    vehicle/test_rcs.cpp
     integrators/test_six_dof.cpp
     integrators/test_fixed_step.cpp
     events/test_brent.cpp
@@ -30,6 +32,7 @@ add_executable(simcore_tests
     sim/test_replay.cpp
     gnc/test_attitude_control.cpp
     gnc/test_lqr.cpp
+    gnc/test_momentum.cpp
     simapp/test_render_frame.cpp)
 target_link_libraries(simcore_tests PRIVATE simcore GTest::gtest_main orbit_warnings)
 # simapp's header-only, raylib-free helpers (render_frame.hpp) are tested here too.

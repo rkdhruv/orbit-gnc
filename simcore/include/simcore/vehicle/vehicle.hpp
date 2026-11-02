@@ -7,6 +7,7 @@
 
 #include "simcore/orbits/epoch.hpp"
 #include "simcore/vehicle/mass_properties.hpp"
+#include "simcore/vehicle/rcs.hpp"
 #include "simcore/vehicle/reaction_wheel.hpp"
 #include "simcore/vehicle/thruster.hpp"
 
@@ -19,6 +20,9 @@ struct VehicleConfig {
     MassProperties mass;
     std::vector<Thruster> thrusters;
     std::vector<ReactionWheel> wheels;
+    // RCS torque couples (none by default). The {} is deliberate: it lets aggregate initialisers
+    // that omit this field compile without -Wmissing-field-initializers.
+    std::vector<RcsAxis> rcs{};  // NOLINT(readability-redundant-member-init)
 };
 
 // Full 6-DOF state: translation (ECI), attitude (body-to-ECI, body rates), propellant on board and
@@ -38,6 +42,8 @@ struct VehicleState {
 struct VehicleCommand {
     std::vector<double> throttle;
     std::vector<double> wheel_torque_nm;
+    // One command in [-1, 1] per RCS axis (same order as the config); {} as for VehicleConfig.
+    std::vector<double> rcs{};  // NOLINT(readability-redundant-member-init)
 
     bool operator==(const VehicleCommand&) const = default;  // exact, element by element
 };

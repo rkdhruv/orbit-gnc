@@ -22,6 +22,11 @@ bool is_coast(const VehicleCommand& c) {
             return false;
         }
     }
+    for (const double u : c.rcs) {
+        if (u != 0.0) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -35,6 +40,7 @@ Simulation::Simulation(SimConfig config, VehicleState initial)
     validate_vehicle_state(cfg_.vehicle, state_);
     command_.throttle.assign(cfg_.vehicle.thrusters.size(), 0.0);
     command_.wheel_torque_nm.assign(cfg_.vehicle.wheels.size(), 0.0);
+    command_.rcs.assign(cfg_.vehicle.rcs.size(), 0.0);
 }
 
 void Simulation::submit(const VehicleCommand& cmd) {

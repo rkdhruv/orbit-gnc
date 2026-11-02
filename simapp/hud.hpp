@@ -22,8 +22,9 @@ struct HudFrame {
     bool rate_damping;
     std::optional<simcore::HoldMode> hold;  // active attitude hold, if any
     bool use_lqr;                           // hold controller: LQR (true) or PD
+    bool dumping;                           // wheel momentum dump (RCS) in progress
     bool on_rails;
-    bool j2;                    // environment includes J2 (no rails warp)
+    bool j2;                    // perturbed environment: J2 + gravity gradient (no rails warp)
     const char* replay_status;  // result of the last "Verify replay", or "" if none yet
 };
 
@@ -31,7 +32,7 @@ struct HudFrame {
 enum class HudAction : std::uint8_t {
     kNone,
     kRestartTwoBody,
-    kRestartJ2,
+    kRestartJ2,  // the perturbed scenario: J2 + gravity gradient
     kVerifyReplay,
     kToggleController,
     kHoldOff,

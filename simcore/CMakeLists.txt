@@ -2,6 +2,7 @@ add_library(simcore STATIC
     src/version.cpp
     src/dynamics/exponential_drag.cpp
     src/dynamics/force_sum.cpp
+    src/dynamics/gravity_gradient.cpp
     src/dynamics/j2_gravity.cpp
     src/dynamics/point_mass_gravity.cpp
     src/dynamics/rigid_body.cpp
@@ -9,6 +10,7 @@ add_library(simcore STATIC
     src/events/events.cpp
     src/gnc/attitude_control.cpp
     src/gnc/lqr.cpp
+    src/gnc/momentum.cpp
     src/gnc/wheel_allocation.cpp
     src/integrators/attitude.cpp
     src/integrators/dense_output.cpp
@@ -25,6 +27,7 @@ add_library(simcore STATIC
     src/sim/telemetry.cpp
     src/sim/tick_scheduler.cpp
     src/vehicle/mass_properties.cpp
+    src/vehicle/rcs.cpp
     src/vehicle/reaction_wheel.cpp
     src/vehicle/thruster.cpp)
 

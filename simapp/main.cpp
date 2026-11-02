@@ -20,9 +20,11 @@
 #include "scene.hpp"
 #include "simcore/constants.hpp"
 #include "simcore/dynamics/force_sum.hpp"
+#include "simcore/dynamics/gravity_gradient.hpp"
 #include "simcore/dynamics/j2_gravity.hpp"
 #include "simcore/dynamics/point_mass_gravity.hpp"
 #include "simcore/gnc/attitude_control.hpp"
+#include "simcore/gnc/momentum.hpp"
 #include "simcore/gnc/wheel_allocation.hpp"
 #include "simcore/orbits/elements.hpp"
 #include "simcore/sim/manual_control.hpp"
@@ -42,29 +44,41 @@ constexpr int kWindowHeight = 720;
 constexpr double kDeg = std::numbers::pi / 180.0;
 
 // Default scenario: a 500 kg spacecraft with 300 kg of propellant, one 400 N, Isp 320 s main
-// engine along body +x and three reaction wheels on the body axes (their locked inertia is part
-// of the dry inertia), in a 420 km circular orbit at 51.6 deg. Two-body gravity allows on-rails
-// time warp; with J2 the sim always integrates, so warp stays at or below kMaxIntegratedWarp.
-simcore::Simulation make_sim(bool j2) {
+// engine along body +x, a product of inertia I_xz = 150 kg m^2 (asymmetric appendages: without
+// one every hold frame puts a principal axis along r and gravity gradient never loads the wheels;
+// in a prograde hold it gives 3 n^2 I_xz = 5.7e-4 N m, a dump every ~12 h), three reaction wheels
+// on the body axes (J = 0.05, 30 N m s each, room for a 90 deg slew's ~8 N m s; their locked
+// inertia is part of the dry inertia) and RCS couples about each axis (0.5 N m, 1 m lever, Isp 220
+// s, fed from the main tank: an approximation, real hydrazine RCS would have its own), in a 420 km
+// circular orbit at 51.6 deg. Two-body gravity allows on-rails time warp. The perturbed scenario
+// adds J2 and gravity-gradient torque (inertia fixed at the full-tank value, a stated
+// simplification); it always integrates, so warp stays at or below kMaxIntegratedWarp.
+simcore::Simulation make_sim(bool perturbed) {
     const simcore::VehicleConfig vehicle{
         simcore::MassProperties(
-            500.0, Eigen::Vector3d(300.0, 400.0, 450.0).asDiagonal(),
+            500.0,
+            (Eigen::Matrix3d() << 300.0, 0.0, 150.0, 0.0, 400.0, 0.0, 150.0, 0.0, 450.0).finished(),
             simcore::PropellantTank{300.0, Eigen::Vector3d(30.0, 30.0, 20.0).asDiagonal()}),
         {simcore::Thruster(400.0, 320.0, Eigen::Vector3d(-1.0, 0.0, 0.0),
                            Eigen::Vector3d::UnitX())},
         {simcore::ReactionWheel(Eigen::Vector3d::UnitX(), 0.05, 0.1, 600.0),
          simcore::ReactionWheel(Eigen::Vector3d::UnitY(), 0.05, 0.1, 600.0),
-         simcore::ReactionWheel(Eigen::Vector3d::UnitZ(), 0.05, 0.1, 600.0)}};
+         simcore::ReactionWheel(Eigen::Vector3d::UnitZ(), 0.05, 0.1, 600.0)},
+        {simcore::RcsAxis(Eigen::Vector3d::UnitX(), 0.5, 1.0, 220.0),
+         simcore::RcsAxis(Eigen::Vector3d::UnitY(), 0.5, 1.0, 220.0),
+         simcore::RcsAxis(Eigen::Vector3d::UnitZ(), 0.5, 1.0, 220.0)}};
     auto forces = std::make_shared<simcore::ForceSum>();
     forces->add(std::make_shared<simcore::PointMassGravity>());
     std::optional<double> rails_mu = simcore::earth::mu;
-    if (j2) {
+    std::shared_ptr<const simcore::TorqueModel> torques =
+        std::make_shared<simcore::ConstantBodyTorque>(Eigen::Vector3d::Zero());
+    if (perturbed) {
         forces->add(std::make_shared<simcore::J2Gravity>());
+        torques =
+            std::make_shared<simcore::GravityGradientTorque>(vehicle.mass.inertia_kgm2(300.0));
         rails_mu.reset();
     }
-    const simcore::SimConfig cfg{
-        vehicle, forces, std::make_shared<simcore::ConstantBodyTorque>(Eigen::Vector3d::Zero()),
-        0.02, rails_mu};
+    const simcore::SimConfig cfg{vehicle, forces, torques, 0.02, rails_mu};
 
     const simcore::Epoch t0 = simcore::Epoch::from_tt_seconds_since_j2000(830'000'000);
     const simcore::State orbit =
@@ -96,6 +110,7 @@ struct App {
     simapp::Scene scene;
     simapp::Controls controls;
     bool fell_behind = false;
+    bool dumping = false;  // wheel momentum dump in progress (hysteresis state)
 };
 
 std::unique_ptr<App> g_app;  // the browser's main-loop callback takes no arguments
@@ -141,8 +156,12 @@ simcore::Telemetry update_sim(App& app, double frame_dt) {
     // idle and there is an orbit frame), otherwise manual flight with optional rate damping.
     const std::optional<simcore::HoldMode> hold = app.controls.hold();
     const bool use_lqr = app.controls.use_lqr();
-    const simcore::ControlLaw law = [&vehicle, input, hold,
-                                     use_lqr](const simcore::VehicleState& s) {
+    // While a hold is active, wheel momentum is managed too: dumping (with hysteresis) whenever the
+    // wheels near saturation. The hysteresis flag lives in App; every resulting command is
+    // submitted and logged, so replay is unaffected.
+    bool& dumping = app.dumping;
+    const simcore::ControlLaw law = [&vehicle, input, hold, use_lqr,
+                                     &dumping](const simcore::VehicleState& s) {
         const bool has_frame =
             s.r_eci.cross(s.v_eci).norm() > 1e-12 * s.r_eci.norm() * s.v_eci.norm();
         if (hold && input.rotate == Eigen::Vector3d::Zero() && has_frame) {
@@ -158,10 +177,12 @@ simcore::Telemetry update_sim(App& app, double frame_dt) {
                           I, simcore::BrysonLimits{simapp::kLqrMaxAngle_rad,
                                                    simapp::kLqrMaxRate_radps, tau_max})
                     : simcore::pd_gains(I, simapp::kHoldGains);
-            return simcore::attitude_command(
+            dumping = simcore::desat_active(dumping, vehicle, s, simcore::DesatSettings{});
+            return simcore::attitude_command_with_desat(
                 vehicle, s, simcore::hold_target(*hold, simcore::State{s.t, s.r_eci, s.v_eci}),
-                gains, input.throttle);
+                gains, dumping, simcore::DesatSettings{}, input.throttle);
         }
+        dumping = false;
         return simcore::manual_command(vehicle, input, s);
     };
     // Fast warp only if the next tick would be a rails coast (coasting, not rotating, a conic
@@ -230,8 +251,8 @@ void UpdateDrawFrame() {
                   simapp::HudFrame{snap.state.t - app.t0, snap.tick, app.scene.camera_distance_m(),
                                    GetFPS(), app.fell_behind, app.controls.warp(),
                                    app.controls.throttle(), app.controls.rate_damping(),
-                                   app.controls.hold(), app.controls.use_lqr(), snap.on_rails,
-                                   app.j2, app.replay_status.c_str()})
+                                   app.controls.hold(), app.controls.use_lqr(), app.dumping,
+                                   snap.on_rails, app.j2, app.replay_status.c_str()})
             : draw_error(app.error, app.j2);
     rlImGuiEnd();
 

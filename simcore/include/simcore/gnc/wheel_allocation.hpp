@@ -16,6 +16,10 @@ namespace simcore {
 std::vector<double> wheel_torques_for_body_torque(const VehicleConfig& cfg,
                                                   const Eigen::Vector3d& tau_body_nm);
 
+// The largest factor s for which s tau_b fits within every wheel's torque limit under this
+// allocation (+infinity for tau_b = 0 or no wheels needed; 0 with no wheels and tau_b != 0).
+double wheel_torque_headroom(const VehicleConfig& cfg, const Eigen::Vector3d& tau_body_nm);
+
 // T_k: the largest body torque about body axis k (0, 1, 2) under this allocation, i.e. a unit
 // request about axis k scaled until the first wheel hits its limit. 0 if the allocation gives no
 // wheel torque for that axis. (A redundant set, e.g. a 4-wheel pyramid, could make more using its

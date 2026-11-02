@@ -60,7 +60,8 @@ through the test-first loop in CLAUDE.md.
 - [x] PD attitude controller on the quaternion error, with gyroscopic compensation
   - Hold modes: prograde, retrograde, normal, antinormal, radial out, radial in.
 - [x] LQR linearised about the hold attitude (CARE by the matrix sign function; Bryson weights)
-- [ ] Wheel momentum management: desaturation with thrusters when wheels approach their limit
+- [x] Wheel momentum management: desaturation with thrusters when wheels approach their limit
+  - RCS torque couples; gravity-gradient torque as the disturbance that loads the wheels.
 - [ ] Maneuver nodes with the predicted post-burn orbit
   - The autopilot executes them: point, wait, burn centred on the node, cut off on achieved Δv.
 - [ ] Hohmann and plane-change calculators that create nodes

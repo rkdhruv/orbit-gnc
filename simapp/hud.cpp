@@ -79,12 +79,12 @@ HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& c
         }
         ImGui::TextDisabled("Shift/Ctrl throttle  Z/X full/cut  W/S A/D Q/E rotate");
         ImGui::TextDisabled("T damping  R hold  L PD/LQR  ,/. warp  (>100x: rails, no hold)");
-        ImGui::Text("%-14s %s", "Environment", f.j2 ? "point mass + J2" : "two-body");
+        ImGui::Text("%-14s %s", "Environment", f.j2 ? "J2 + gravity-gradient torque" : "two-body");
         if (ImGui::Button("Restart: two-body")) {
             action = HudAction::kRestartTwoBody;
         }
         ImGui::SameLine();
-        if (ImGui::Button("Restart: with J2")) {
+        if (ImGui::Button("Restart: J2 + gravity gradient")) {
             action = HudAction::kRestartJ2;
         }
         if (ImGui::Button("Verify replay")) {
@@ -151,6 +151,9 @@ HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& c
                                label.data());
         }
         ImGui::TextDisabled("bar: wheel speed relative to the body / limit");
+        ImGui::Text("%-14s %s", "Momentum",
+                    f.dumping ? "dumping with RCS (until < 10%)"
+                              : "held by the wheels (dump at 80%, with a hold on)");
     }
 
     ImGui::Separator();

@@ -101,6 +101,11 @@ Each row is a GoogleTest assertion; the bound in the Reference column is what th
 | Prograde hold, 420 km, 300 s | body x on the velocity (< 0.01°) | 1.7e-6° |
 | CARE (matrix sign function), scalar x' = x + u | P = 1 + √2 | within 1e-12 |
 | LQR gains vs the per-axis closed form | k1 = √(qθ/r), k2 = √((2m√(qθr) + qω)/r) | within 1e-9 |
+| Gravity-gradient pitch libration, 420 km | 2π / (n√(3(I_y − I_x)/I_z)) = 4260.44 s | 4261.74 s (0.03%: the 2° amplitude) |
+| RCS couple, 10 s at full torque | ω = τt/I, no translation | v stays exactly 0; Δm = ṁt to 1e-13 kg |
+| Momentum dump under gravity gradient, prograde hold, 4000 s | 3 dumps, first at 1261.1 s | 3, first at 1260.0 s; peak saturation 0.8002 |
+| Dumping leaves the hold undisturbed | PD offset τ/Kp = 0.022° | 0.0228° (without dumping: wheel saturates, 140° off) |
+| Dump propellant | ∫\|τ_rcs\| dt / (L·Isp·g₀) ≈ 3.24e-3 kg | 3.2402e-3 kg |
 
 PD vs LQR, 30° skew-axis slew on the default vehicle (0.1 N·m wheels, I = diag(300, 400, 450) kg·m²):
 

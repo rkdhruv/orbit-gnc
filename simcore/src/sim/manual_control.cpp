@@ -23,6 +23,7 @@ VehicleCommand manual_command(const VehicleConfig& cfg, const ManualInput& in,
         c.throttle.front() = in.throttle;
     }
     c.wheel_torque_nm.assign(cfg.wheels.size(), 0.0);
+    c.rcs.assign(cfg.rcs.size(), 0.0);
 
     Eigen::Vector3d tau_b = Eigen::Vector3d::Zero();
     if (in.rotate != Eigen::Vector3d::Zero()) {

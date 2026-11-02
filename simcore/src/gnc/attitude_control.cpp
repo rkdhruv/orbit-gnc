@@ -123,6 +123,7 @@ VehicleCommand attitude_command(const VehicleConfig& cfg, const VehicleState& s,
         c.throttle.front() = throttle;
     }
     c.wheel_torque_nm = wheel_torques_for_body_torque(cfg, tau_b);
+    c.rcs.assign(cfg.rcs.size(), 0.0);
     return c;
 }
 

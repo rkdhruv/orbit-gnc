@@ -29,7 +29,7 @@ struct SimConfig {
     double impact_radius_m{earth::radius};
 };
 
-// True if the command fires nothing: every throttle and wheel torque command is exactly zero.
+// True if the command fires nothing: every throttle, wheel torque and RCS command is exactly zero.
 bool is_coast(const VehicleCommand& c);
 
 // One input-log entry: `command` took effect at the start of tick `tick` (and held until the next

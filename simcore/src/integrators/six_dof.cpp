@@ -53,6 +53,11 @@ Y rate(const VehicleConfig& cfg, const ForceModel& env_accel, const TorqueModel&
         tau_thrust += cfg.thrusters[i].torque_body_nm(u);
         mdot += cfg.thrusters[i].mass_flow_kgps(u);
     }
+    for (std::size_t i = 0; i < cfg.rcs.size(); ++i) {  // pure torque couples: no net force
+        const double u = throttle_scale * cmd.rcs[i];
+        tau_thrust += cfg.rcs[i].torque_body_nm(u);
+        mdot += cfg.rcs[i].mass_flow_kgps(u);
+    }
 
     const Eigen::Quaterniond q_raw(y.q);
     const Eigen::Quaterniond q_unit = q_raw.normalized();
@@ -89,6 +94,10 @@ void validate_command(const VehicleConfig& cfg, const VehicleCommand& cmd) {
     for (const double tau : cmd.wheel_torque_nm) {
         SIMCORE_CHECK(std::isfinite(tau), "wheel torque commands must be finite");
     }
+    SIMCORE_CHECK(cmd.rcs.size() == cfg.rcs.size(), "one RCS command per RCS axis");
+    for (const double u : cmd.rcs) {
+        SIMCORE_CHECK(u >= -1.0 && u <= 1.0, "RCS commands must be in [-1, 1]");  // NaN fails too
+    }
 }
 
 void validate_vehicle_state(const VehicleConfig& cfg, const VehicleState& s) {
@@ -104,6 +113,9 @@ VehicleState six_dof_rk4_step(const VehicleConfig& cfg, const ForceModel& env_ac
     double mdot_cmd = 0.0;
     for (std::size_t i = 0; i < cfg.thrusters.size(); ++i) {
         mdot_cmd += cfg.thrusters[i].mass_flow_kgps(cmd.throttle[i]);
+    }
+    for (std::size_t i = 0; i < cfg.rcs.size(); ++i) {
+        mdot_cmd += cfg.rcs[i].mass_flow_kgps(cmd.rcs[i]);
     }
     SIMCORE_CHECK(h_s >= 0.0 || mdot_cmd == 0.0, "backward 6-DOF steps can't thrust");
     const double need_kg = mdot_cmd * h_s;
