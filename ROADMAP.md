@@ -64,7 +64,7 @@ through the test-first loop in CLAUDE.md.
   - RCS torque couples; gravity-gradient torque as the disturbance that loads the wheels.
 - [x] Maneuver nodes with the predicted post-burn orbit
   - The autopilot executes them: point, wait, burn centred on the node, cut off on achieved Δv.
-- [ ] Hohmann and plane-change calculators that create nodes
+- [x] Hohmann and plane-change calculators that create nodes (plus circularise, time to anomaly, a node queue)
 - **Done when:**
   - the autopilot flies LEO (300 km) → GEO on its own;
   - total Δv is within 2% of the impulsive 3.89 km/s, with the finite-burn loss reported;

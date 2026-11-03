@@ -35,6 +35,8 @@ struct NodeEditor {
     double normal_mps{0.0};
     double radial_mps{0.0};
     double in_s{600.0};  // node time from now
+    double hohmann_alt_km{35786.0};
+    double target_inc_deg{0.0};
 };
 
 // What the HUD shows about the planned node (computed by the app each frame).
@@ -50,6 +52,8 @@ struct NodeView {
     bool executing{false};
     const char* phase{""};
     double achieved_mps{0.0};
+    int queued{0};           // further planned steps after this node
+    const char* status{""};  // last planning message (e.g. why a calculator refused)
 };
 
 // What the pilot clicked this frame.
@@ -60,7 +64,13 @@ enum class HudAction : std::uint8_t {
     kVerifyReplay,
     kToggleController,
     kAddNode,
-    kDeleteNode,
+    kAddNodeAtApoapsis,
+    kAddNodeAtPeriapsis,
+    kHohmann,
+    kCircularizeApoapsis,
+    kCircularizePeriapsis,
+    kPlaneChange,
+    kDeleteNode,  // clears the whole plan
     kExecuteNode,
     kCancelExecute,
     kHoldOff,

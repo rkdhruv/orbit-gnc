@@ -6,8 +6,11 @@
 #include <rlImGui.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <deque>
 #include <exception>
 #include <limits>
 #include <memory>
@@ -27,6 +30,7 @@
 #include "simcore/gnc/attitude_control.hpp"
 #include "simcore/gnc/maneuver.hpp"
 #include "simcore/gnc/momentum.hpp"
+#include "simcore/gnc/transfers.hpp"
 #include "simcore/gnc/wheel_allocation.hpp"
 #include "simcore/orbits/elements.hpp"
 #include "simcore/sim/manual_control.hpp"
@@ -114,8 +118,18 @@ struct App {
     bool fell_behind = false;
     bool dumping = false;  // wheel momentum dump in progress (hysteresis state)
     simapp::NodeEditor node_editor;
-    std::optional<simcore::ManeuverNode> node;      // the planned burn, if any
+    std::optional<simcore::ManeuverNode> node;      // the next planned burn, if any
     std::optional<simcore::ManeuverExecutor> exec;  // flying it, if Execute was pressed
+    // Steps after `node`. A circularise step is computed only when its turn comes, from the orbit
+    // the previous burns actually produced (so a finite-burn error isn't carried forward).
+    enum class StepKind : std::uint8_t { kNode, kCircularizeApoapsis, kCircularizePeriapsis };
+    struct PlanStep {
+        StepKind kind;
+        simcore::ManeuverNode node;  // for kNode
+    };
+    std::deque<PlanStep> queue;
+    bool auto_continue = false;  // Execute flies the whole plan
+    std::string plan_status;
 };
 
 std::unique_ptr<App> g_app;  // the browser's main-loop callback takes no arguments
@@ -145,6 +159,130 @@ std::string verify_replay(const App& app) {
                                  std::to_string(log.size()) +
                                  (log.size() == 1 ? " logged command)" : " logged commands)")
                            : std::string("MISMATCH: ") + diff + " differs";
+}
+
+// Start flying the current node (if any), reporting a refusal in the plan status.
+void start_executor(App& app, const simcore::VehicleState& s) {
+    if (!app.node) {
+        return;
+    }
+    try {
+        app.exec.emplace(app.sim.config().vehicle, s, *app.node, simcore::kManualHoldMax_s);
+    } catch (const std::exception& e) {
+        app.plan_status = std::string("can't execute: ") + e.what();
+        app.auto_continue = false;
+    }
+}
+
+// Append a step to the plan: it becomes the current node if there is none.
+void push_step(App& app, const App::PlanStep& step, const simcore::VehicleState& s) {
+    if (app.node || !app.queue.empty()) {
+        app.queue.push_back(step);
+        return;
+    }
+    const simcore::State orbit{s.t, s.r_eci, s.v_eci};
+    switch (step.kind) {
+        case App::StepKind::kNode:
+            app.node = step.node;
+            break;
+        case App::StepKind::kCircularizeApoapsis:
+            app.node = simcore::circularize_node(orbit, true);
+            break;
+        case App::StepKind::kCircularizePeriapsis:
+            app.node = simcore::circularize_node(orbit, false);
+            break;
+    }
+}
+
+// Planning actions and the hand-on from one finished node to the next. Calculator refusals
+// (e.g. a plane change on an equatorial orbit) land in the plan status instead of stopping the sim.
+void plan_frame(App& app, const simcore::VehicleState& s, simapp::HudAction action) {
+    using simapp::HudAction;
+    const simcore::State orbit{s.t, s.r_eci, s.v_eci};
+    const simapp::NodeEditor& e = app.node_editor;
+    try {
+        if (app.exec && app.exec->phase() == simcore::ManeuverExecutor::Phase::kDone) {
+            app.exec.reset();
+            app.node.reset();
+            if (!app.queue.empty()) {
+                const App::PlanStep next = app.queue.front();
+                app.queue.pop_front();
+                push_step(app, next, s);  // circularise steps are computed now, from the real orbit
+                if (app.auto_continue) {
+                    start_executor(app, s);
+                }
+            } else {
+                app.auto_continue = false;
+                app.plan_status = "plan complete";
+            }
+        }
+        const Eigen::Vector3d dv_rsw(e.radial_mps, e.prograde_mps, e.normal_mps);  // RSW order
+        if (action == HudAction::kAddNode && std::isfinite(e.in_s) && e.in_s >= 0.0 &&
+            dv_rsw.norm() > 0.0) {
+            push_step(app, {App::StepKind::kNode, {s.t + e.in_s, dv_rsw}}, s);
+        } else if ((action == HudAction::kAddNodeAtApoapsis ||
+                    action == HudAction::kAddNodeAtPeriapsis) &&
+                   dv_rsw.norm() > 0.0) {
+            const double nu = action == HudAction::kAddNodeAtApoapsis ? std::numbers::pi : 0.0;
+            push_step(
+                app,
+                {App::StepKind::kNode, {s.t + simcore::time_to_true_anomaly_s(orbit, nu), dv_rsw}},
+                s);
+        } else if (action == HudAction::kHohmann) {
+            const double r2 = simcore::earth::radius + 1000.0 * e.hohmann_alt_km;
+            // First burn: on a near-circular orbit, 300 s (time to slew) plus the burn's own lead
+            // from now; otherwise at periapsis when raising and apoapsis when lowering, where the
+            // velocity is horizontal.
+            const simcore::KeplerianElements el = simcore::elements_from_state(orbit);
+            simcore::Epoch t_burn = s.t + 300.0;
+            if (el.e >= 1e-3) {
+                const bool raising = r2 > el.a_m;
+                t_burn =
+                    s.t + simcore::time_to_true_anomaly_s(orbit, raising ? 0.0 : std::numbers::pi);
+            } else if (!app.sim.config().vehicle.thrusters.empty()) {
+                const simcore::VehicleConfig& v = app.sim.config().vehicle;
+                const double dv1 = std::abs(simcore::hohmann_transfer(orbit, t_burn, r2).dv1_mps);
+                t_burn += simcore::burn_lead_s(dv1, v.mass.mass_kg(s.propellant_kg),
+                                               v.thrusters.front().force_body_n(1.0).norm(),
+                                               v.thrusters.front().exhaust_velocity_mps());
+            }
+            const simcore::HohmannPlan p = simcore::hohmann_transfer(orbit, t_burn, r2);
+            push_step(app, {App::StepKind::kNode, p.first}, s);
+            push_step(app,
+                      {p.dv1_mps > 0.0 ? App::StepKind::kCircularizeApoapsis
+                                       : App::StepKind::kCircularizePeriapsis,
+                       {}},
+                      s);
+            std::array<char, 128> msg{};
+            std::snprintf(msg.data(), msg.size(),
+                          "Hohmann: %.1f + %.1f = %.1f m/s, %.2f h transfer", p.dv1_mps, p.dv2_mps,
+                          std::abs(p.dv1_mps) + std::abs(p.dv2_mps), p.transfer_s / 3600.0);
+            app.plan_status = msg.data();
+        } else if (action == HudAction::kCircularizeApoapsis) {
+            push_step(app, {App::StepKind::kCircularizeApoapsis, {}}, s);
+        } else if (action == HudAction::kCircularizePeriapsis) {
+            push_step(app, {App::StepKind::kCircularizePeriapsis, {}}, s);
+        } else if (action == HudAction::kPlaneChange) {
+            push_step(
+                app,
+                {App::StepKind::kNode,
+                 simcore::plane_change_node(orbit, e.target_inc_deg * std::numbers::pi / 180.0)},
+                s);
+        } else if (action == HudAction::kDeleteNode) {
+            app.node.reset();
+            app.queue.clear();
+            app.plan_status.clear();
+        } else if (action == HudAction::kExecuteNode && app.node) {
+            app.auto_continue = true;
+            app.plan_status.clear();
+            start_executor(app, s);
+        } else if (action == HudAction::kCancelExecute) {
+            app.exec.reset();
+            app.auto_continue = false;
+        }
+    } catch (const std::invalid_argument& ex) {
+        app.plan_status = std::string("can't plan that: ") + ex.what();
+    }
 }
 
 // The sim half of a frame: pilot input -> command, warp limit, ticks. May throw (a SIMCORE_CHECK
@@ -283,6 +421,7 @@ void UpdateDrawFrame() {
             node_view.apo_alt_m = el.e < 1.0 ? el.a_m * (1.0 + el.e) - simcore::earth::radius
                                              : std::numeric_limits<double>::infinity();
         }
+        node_view.queued = static_cast<int>(app.queue.size());
         if (app.exec) {
             using Phase = simcore::ManeuverExecutor::Phase;
             node_view.executing = true;
@@ -295,6 +434,7 @@ void UpdateDrawFrame() {
             node_view.achieved_mps = app.exec->achieved_dv_mps();
         }
     }
+    node_view.status = app.plan_status.c_str();
     app.scene.draw(snap, predicted);
 
     rlImGuiBegin();
@@ -313,30 +453,8 @@ void UpdateDrawFrame() {
 
     EndDrawing();
 
-    // A finished node is cleared, handing control back to the pilot's hold or manual flight.
-    if (app.exec && app.exec->phase() == simcore::ManeuverExecutor::Phase::kDone) {
-        app.exec.reset();
-        app.node.reset();
-    }
-    if (action == simapp::HudAction::kAddNode) {
-        const simapp::NodeEditor& e = app.node_editor;
-        if (std::isfinite(e.in_s) && e.in_s >= 0.0 &&
-            Eigen::Vector3d(e.radial_mps, e.prograde_mps, e.normal_mps).norm() > 0.0) {
-            app.node = simcore::ManeuverNode{
-                snap.state.t + e.in_s,
-                Eigen::Vector3d(e.radial_mps, e.prograde_mps, e.normal_mps)};  // RSW order
-        }
-    } else if (action == simapp::HudAction::kDeleteNode) {
-        app.node.reset();
-    } else if (action == simapp::HudAction::kExecuteNode && app.node) {
-        try {
-            app.exec.emplace(vehicle, snap.state, *app.node, simcore::kManualHoldMax_s);
-        } catch (const std::exception& e) {
-            app.replay_status = std::string("can't execute: ") + e.what();
-        }
-    } else if (action == simapp::HudAction::kCancelExecute) {
-        app.exec.reset();
-    } else if (action == simapp::HudAction::kToggleController) {
+    plan_frame(app, snap.state, action);
+    if (action == simapp::HudAction::kToggleController) {
         app.controls.toggle_lqr();
     } else if (action >= simapp::HudAction::kHoldOff) {
         const auto i = static_cast<int>(action) - static_cast<int>(simapp::HudAction::kHoldOff);
@@ -349,7 +467,8 @@ void UpdateDrawFrame() {
         } catch (const std::exception& e) {
             app.replay_status = std::string("replay failed: ") + e.what();
         }
-    } else if (action != simapp::HudAction::kNone) {
+    } else if (action == simapp::HudAction::kRestartTwoBody ||
+               action == simapp::HudAction::kRestartJ2) {
         g_app = std::make_unique<App>(action == simapp::HudAction::kRestartJ2);
     }
 }

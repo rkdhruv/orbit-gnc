@@ -97,27 +97,24 @@ HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& c
     }
 
     if (ImGui::CollapsingHeader("Maneuver", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (!node.has_node) {
-            ImGui::InputDouble("prograde m/s", &editor.prograde_mps, 1.0, 10.0, "%.1f");
-            ImGui::InputDouble("normal m/s", &editor.normal_mps, 1.0, 10.0, "%.1f");
-            ImGui::InputDouble("radial m/s", &editor.radial_mps, 1.0, 10.0, "%.1f");
-            ImGui::InputDouble("in (s)", &editor.in_s, 10.0, 100.0, "%.0f");
-            if (ImGui::Button("Add node")) {
-                action = HudAction::kAddNode;
-            }
-        } else {
+        if (node.has_node) {
             ImGui::Text("%-14s %.1f m/s, burn %.1f s", "Node dv", node.dv_mps, node.burn_s);
             ImGui::Text("%-14s %.0f s (ignition in %.0f s)", "Node in", node.t_to_node_s,
                         node.t_to_ignition_s);
             if (node.predicted_valid) {
-                ImGui::Text("%-14s peri %.1f km, apo %s", "After burn", node.peri_alt_m / 1000.0,
-                            std::isinf(node.apo_alt_m) ? "none (escape)" : "");
-                if (!std::isinf(node.apo_alt_m)) {
-                    ImGui::SameLine(0.0F, 0.0F);
-                    ImGui::Text("%.1f km", node.apo_alt_m / 1000.0);
+                if (std::isinf(node.apo_alt_m)) {
+                    ImGui::Text("%-14s peri %.1f km, escape", "After burn",
+                                node.peri_alt_m / 1000.0);
+                } else {
+                    ImGui::Text("%-14s peri %.1f km, apo %.1f km", "After burn",
+                                node.peri_alt_m / 1000.0, node.apo_alt_m / 1000.0);
                 }
             } else {
                 ImGui::Text("%-14s n/a (near-parabolic)", "After burn");
+            }
+            if (node.queued > 0) {
+                ImGui::Text("%-14s %d more step%s queued", "Plan", node.queued,
+                            node.queued == 1 ? "" : "s");
             }
             ImGui::TextDisabled("predicted orbit in cyan (impulsive, two-body)");
             if (node.executing) {
@@ -127,14 +124,50 @@ HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& c
                     action = HudAction::kCancelExecute;
                 }
             } else {
-                if (ImGui::Button("Execute")) {
+                if (ImGui::Button("Execute plan")) {
                     action = HudAction::kExecuteNode;
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("Delete node")) {
+                if (ImGui::Button("Clear plan")) {
                     action = HudAction::kDeleteNode;
                 }
             }
+            ImGui::Separator();
+        }
+        // Planning tools (a new step goes after anything already planned).
+        ImGui::InputDouble("prograde m/s", &editor.prograde_mps, 1.0, 10.0, "%.1f");
+        ImGui::InputDouble("normal m/s", &editor.normal_mps, 1.0, 10.0, "%.1f");
+        ImGui::InputDouble("radial m/s", &editor.radial_mps, 1.0, 10.0, "%.1f");
+        ImGui::InputDouble("in (s)", &editor.in_s, 10.0, 100.0, "%.0f");
+        if (ImGui::SmallButton("Add node in N s")) {
+            action = HudAction::kAddNode;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("at apoapsis")) {
+            action = HudAction::kAddNodeAtApoapsis;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("at periapsis")) {
+            action = HudAction::kAddNodeAtPeriapsis;
+        }
+        ImGui::InputDouble("target alt km", &editor.hohmann_alt_km, 100.0, 1000.0, "%.0f");
+        if (ImGui::SmallButton("Hohmann transfer")) {
+            action = HudAction::kHohmann;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Circ. at apo")) {
+            action = HudAction::kCircularizeApoapsis;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Circ. at peri")) {
+            action = HudAction::kCircularizePeriapsis;
+        }
+        ImGui::InputDouble("target incl deg", &editor.target_inc_deg, 1.0, 10.0, "%.2f");
+        if (ImGui::SmallButton("Plane change at next node")) {
+            action = HudAction::kPlaneChange;
+        }
+        if (node.status[0] != '\0') {
+            ImGui::TextWrapped("%s", node.status);
         }
     }
 

@@ -12,6 +12,7 @@ add_library(simcore STATIC
     src/gnc/lqr.cpp
     src/gnc/maneuver.cpp
     src/gnc/momentum.cpp
+    src/gnc/transfers.cpp
     src/gnc/wheel_allocation.cpp
     src/integrators/attitude.cpp
     src/integrators/dense_output.cpp

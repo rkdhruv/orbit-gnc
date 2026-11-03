@@ -34,6 +34,7 @@ add_executable(simcore_tests
     gnc/test_lqr.cpp
     gnc/test_momentum.cpp
     gnc/test_maneuver.cpp
+    gnc/test_transfers.cpp
     simapp/test_render_frame.cpp)
 target_link_libraries(simcore_tests PRIVATE simcore GTest::gtest_main orbit_warnings)
 # simapp's header-only, raylib-free helpers (render_frame.hpp) are tested here too.
