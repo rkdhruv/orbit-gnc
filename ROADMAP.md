@@ -56,7 +56,7 @@ through the test-first loop in CLAUDE.md.
   - a replay is bit-identical on the same machine.
   - Native and wasm need not match bit-for-bit; see the Eigen FMA note in CLAUDE.md.
 
-## M4: Attitude control and autopilot
+## M4: Attitude control and autopilot (done)
 - [x] PD attitude controller on the quaternion error, with gyroscopic compensation
   - Hold modes: prograde, retrograde, normal, antinormal, radial out, radial in.
 - [x] LQR linearised about the hold attitude (CARE by the matrix sign function; Bryson weights)

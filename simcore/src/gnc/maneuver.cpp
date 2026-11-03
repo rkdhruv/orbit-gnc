@@ -2,11 +2,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include <Eigen/Geometry>
 
 #include "simcore/check.hpp"
 #include "simcore/integrators/six_dof.hpp"
+#include "simcore/orbits/elements.hpp"
 #include "simcore/orbits/kepler.hpp"
 
 namespace simcore {
@@ -78,8 +80,12 @@ double burn_lead_s(double dv_mps, double m0_kg, double thrust_n, double ve_mps) 
 }
 
 ManeuverExecutor::ManeuverExecutor(const VehicleConfig& cfg, const VehicleState& now,
-                                   const ManeuverNode& node, double hold_s, double mu)
-    : node_(node), hold_s_(hold_s), mu_(mu) {
+                                   const ManeuverNode& node, double hold_s, BurnCutoff cutoff,
+                                   double mu)
+    : node_(node), hold_s_(hold_s), cutoff_(cutoff), mu_(mu) {
+    SIMCORE_CHECK(cutoff.kind == BurnCutoff::Kind::kDeltaV ||
+                      (std::isfinite(cutoff.radius_m) && cutoff.radius_m > 0.0),
+                  "an apsis cutoff needs a finite target radius > 0");
     SIMCORE_CHECK(node.dv_rsw_mps.allFinite() && node.dv_rsw_mps.norm() > 0.0,
                   "node dv must be finite and nonzero");
     SIMCORE_CHECK(std::isfinite(hold_s_) && hold_s_ > 0.0, "hold must be finite and > 0");
@@ -133,8 +139,8 @@ VehicleCommand ManeuverExecutor::command(const VehicleConfig& cfg, const Vehicle
     double throttle = 0.0;
     if (phase_ == Phase::kBurn) {
         achieved_ = ve_ * std::log(m_ignition_ / m);  // rocket equation: dv from propellant used
-        const double remaining = dv_target_ - achieved_;
-        if (remaining <= kCutoffResidual_mps || s.propellant_kg <= 0.0) {
+        const double remaining = remaining_dv(s);
+        if (!(remaining > kCutoffResidual_mps) || s.propellant_kg <= 0.0) {
             phase_ = Phase::kDone;
         } else {
             // Full thrust, then just the remainder over the last hold: a = T / m.
@@ -142,6 +148,35 @@ VehicleCommand ManeuverExecutor::command(const VehicleConfig& cfg, const Vehicle
         }
     }
     return attitude_command(cfg, s, target_, gains, throttle);
+}
+
+double ManeuverExecutor::remaining_dv(const VehicleState& s) const {
+    if (cutoff_.kind == BurnCutoff::Kind::kDeltaV) {
+        return dv_target_ - achieved_;
+    }
+    if (achieved_ >= 2.0 * dv_target_) {
+        return 0.0;  // safety stop: something is badly off
+    }
+    const bool apo = cutoff_.kind == BurnCutoff::Kind::kApoapsis;
+    // The apsis radius of an orbit state (+infinity for the apoapsis of an open or non-conic
+    // orbit).
+    const auto apsis = [this, apo](const State& o) {
+        if (!has_conic_elements(o, mu_)) {
+            return apo ? std::numeric_limits<double>::infinity() : 0.0;
+        }
+        const KeplerianElements el = elements_from_state(o, mu_);
+        if (apo) {
+            return el.e < 1.0 ? el.a_m * (1.0 + el.e) : std::numeric_limits<double>::infinity();
+        }
+        return el.a_m * (1.0 - el.e);
+    };
+    const State now{s.t, s.r_eci, s.v_eci};
+    const double f0 = apsis(now);
+    State nudged = now;
+    nudged.v_eci += dir_eci_;                 // +1 m/s along the burn direction
+    const double slope = apsis(nudged) - f0;  // [m per m/s]
+    const double remaining = (cutoff_.radius_m - f0) / slope;
+    return std::isfinite(remaining) ? remaining : 0.0;  // reached, or past, the target: <= 0
 }
 
 }  // namespace simcore

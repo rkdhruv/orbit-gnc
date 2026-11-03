@@ -112,6 +112,8 @@ Each row is a GoogleTest assertion; the bound in the Reference column is what th
 | Hohmann 300 km → GEO (impulsive) | ≈ 3.89 km/s (CLAUDE.md) | 2425.732 + 1466.824 = 3892.557 m/s, 5.28 h |
 | Hohmann plan flown impulsively | circular at GEO | radius to 1e-7, e < 1e-8 |
 | Plane change 51.6° → 41.6° at 420 km | 2v sin(Δi/2) = 1334.750 m/s | i = 41.6° to 1e-9 rad; RAAN, size unchanged |
+| Apoapsis-targeted burn, 300 km → apo 1000 km | apoapsis on target (impulsive dv 190.034 m/s) | 1000.005 km, 190.049 m/s |
+| **M4 done-when: autopilot flies 300 km → GEO alone** (20 kN upper stage) | Δv within 2% of 3892.557 m/s; GEO ± 10 km; e < 1e-3 | 3908.10 m/s (+0.40%, finite-burn loss 15.54 m/s); 35,784.2 × 35,789.2 km; e 5.9e-5 |
 
 PD vs LQR, 30° skew-axis slew on the default vehicle (0.1 N·m wheels, I = diag(300, 400, 450) kg·m²):
 

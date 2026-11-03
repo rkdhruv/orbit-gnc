@@ -9,6 +9,7 @@ add_library(simcore STATIC
     src/events/brent.cpp
     src/events/events.cpp
     src/gnc/attitude_control.cpp
+    src/gnc/autopilot.cpp
     src/gnc/lqr.cpp
     src/gnc/maneuver.cpp
     src/gnc/momentum.cpp

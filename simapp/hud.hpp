@@ -60,7 +60,8 @@ struct NodeView {
 enum class HudAction : std::uint8_t {
     kNone,
     kRestartTwoBody,
-    kRestartJ2,  // the perturbed scenario: J2 + gravity gradient
+    kRestartJ2,   // the perturbed scenario: J2 + gravity gradient
+    kRestartGeo,  // the GEO mission (upper stage at 300 km equatorial)
     kVerifyReplay,
     kToggleController,
     kAddNode,

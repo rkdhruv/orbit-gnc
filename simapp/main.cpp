@@ -28,6 +28,7 @@
 #include "simcore/dynamics/j2_gravity.hpp"
 #include "simcore/dynamics/point_mass_gravity.hpp"
 #include "simcore/gnc/attitude_control.hpp"
+#include "simcore/gnc/autopilot.hpp"
 #include "simcore/gnc/maneuver.hpp"
 #include "simcore/gnc/momentum.hpp"
 #include "simcore/gnc/transfers.hpp"
@@ -59,7 +60,42 @@ constexpr double kDeg = std::numbers::pi / 180.0;
 // circular orbit at 51.6 deg. Two-body gravity allows on-rails time warp. The perturbed scenario
 // adds J2 and gravity-gradient torque (inertia fixed at the full-tank value, a stated
 // simplification); it always integrates, so warp stays at or below kMaxIntegratedWarp.
-simcore::Simulation make_sim(bool perturbed) {
+enum class Scenario : std::uint8_t { kTwoBody, kPerturbed, kGeoMission };
+
+// GEO mission (the M4 done-when): an upper stage, 1000 kg dry + 3000 kg propellant, 20 kN at Isp
+// 320 s (4.35 km/s of dv against the 3.89 km/s Hohmann to GEO), 1 N m / 120 N m s wheels, in a
+// 300 km circular equatorial orbit, two-body (rails warp for the 5.3 h transfer coast).
+simcore::Simulation make_geo_mission() {
+    const simcore::VehicleConfig vehicle{
+        simcore::MassProperties(
+            1000.0, Eigen::Vector3d(1500.0, 3000.0, 3000.0).asDiagonal(),
+            simcore::PropellantTank{3000.0, Eigen::Vector3d(900.0, 1800.0, 1800.0).asDiagonal()}),
+        {simcore::Thruster(20000.0, 320.0, Eigen::Vector3d(-2.0, 0.0, 0.0),
+                           Eigen::Vector3d::UnitX())},
+        {simcore::ReactionWheel(Eigen::Vector3d::UnitX(), 0.2, 1.0, 600.0),
+         simcore::ReactionWheel(Eigen::Vector3d::UnitY(), 0.2, 1.0, 600.0),
+         simcore::ReactionWheel(Eigen::Vector3d::UnitZ(), 0.2, 1.0, 600.0)}};
+    const simcore::SimConfig cfg{
+        vehicle, std::make_shared<simcore::PointMassGravity>(),
+        std::make_shared<simcore::ConstantBodyTorque>(Eigen::Vector3d::Zero()), 0.02,
+        simcore::earth::mu};
+    const simcore::Epoch t0 = simcore::Epoch::from_tt_seconds_since_j2000(830'000'000);
+    const simcore::State orbit = simcore::state_from_elements(
+        simcore::KeplerianElements{simcore::earth::radius + 300.0e3, 0.0, 0.0, 0.0, 0.0, 0.0}, t0);
+    return simcore::Simulation(cfg, simcore::VehicleState{t0,
+                                                          orbit.r_eci,
+                                                          orbit.v_eci,
+                                                          Eigen::Quaterniond::Identity(),
+                                                          Eigen::Vector3d::Zero(),
+                                                          3000.0,
+                                                          {0.0, 0.0, 0.0}});
+}
+
+simcore::Simulation make_sim(Scenario scenario) {
+    if (scenario == Scenario::kGeoMission) {
+        return make_geo_mission();
+    }
+    const bool perturbed = scenario == Scenario::kPerturbed;
     const simcore::VehicleConfig vehicle{
         simcore::MassProperties(
             500.0,
@@ -102,7 +138,8 @@ simcore::Simulation make_sim(bool perturbed) {
 
 // The front end's own state; the simulation is only reached through submit / step / snapshot.
 struct App {
-    explicit App(bool with_j2) : j2(with_j2), sim(make_sim(with_j2)) {}
+    explicit App(Scenario sc) : scenario(sc), j2(sc == Scenario::kPerturbed), sim(make_sim(sc)) {}
+    Scenario scenario;
     bool j2;
     simcore::Simulation sim;
     simcore::VehicleState initial =
@@ -118,17 +155,9 @@ struct App {
     bool fell_behind = false;
     bool dumping = false;  // wheel momentum dump in progress (hysteresis state)
     simapp::NodeEditor node_editor;
-    std::optional<simcore::ManeuverNode> node;      // the next planned burn, if any
-    std::optional<simcore::ManeuverExecutor> exec;  // flying it, if Execute was pressed
-    // Steps after `node`. A circularise step is computed only when its turn comes, from the orbit
-    // the previous burns actually produced (so a finite-burn error isn't carried forward).
-    enum class StepKind : std::uint8_t { kNode, kCircularizeApoapsis, kCircularizePeriapsis };
-    struct PlanStep {
-        StepKind kind;
-        simcore::ManeuverNode node;  // for kNode
-    };
-    std::deque<PlanStep> queue;
-    bool auto_continue = false;  // Execute flies the whole plan
+    // The plan and the autopilot that flies it (simcore: tested end to end, LEO -> GEO).
+    simcore::Autopilot autopilot{simcore::kManualHoldMax_s};
+    bool was_engaged = false;
     std::string plan_status;
 };
 
@@ -161,73 +190,28 @@ std::string verify_replay(const App& app) {
                            : std::string("MISMATCH: ") + diff + " differs";
 }
 
-// Start flying the current node (if any), reporting a refusal in the plan status.
-void start_executor(App& app, const simcore::VehicleState& s) {
-    if (!app.node) {
-        return;
-    }
-    try {
-        app.exec.emplace(app.sim.config().vehicle, s, *app.node, simcore::kManualHoldMax_s);
-    } catch (const std::exception& e) {
-        app.plan_status = std::string("can't execute: ") + e.what();
-        app.auto_continue = false;
-    }
-}
-
-// Append a step to the plan: it becomes the current node if there is none.
-void push_step(App& app, const App::PlanStep& step, const simcore::VehicleState& s) {
-    if (app.node || !app.queue.empty()) {
-        app.queue.push_back(step);
-        return;
-    }
-    const simcore::State orbit{s.t, s.r_eci, s.v_eci};
-    switch (step.kind) {
-        case App::StepKind::kNode:
-            app.node = step.node;
-            break;
-        case App::StepKind::kCircularizeApoapsis:
-            app.node = simcore::circularize_node(orbit, true);
-            break;
-        case App::StepKind::kCircularizePeriapsis:
-            app.node = simcore::circularize_node(orbit, false);
-            break;
-    }
-}
-
-// Planning actions and the hand-on from one finished node to the next. Calculator refusals
-// (e.g. a plane change on an equatorial orbit) land in the plan status instead of stopping the sim.
+// Planning actions. Calculator refusals (e.g. a plane change on an equatorial orbit) land in the
+// plan status instead of stopping the sim.
 void plan_frame(App& app, const simcore::VehicleState& s, simapp::HudAction action) {
     using simapp::HudAction;
+    simcore::Autopilot& ap = app.autopilot;
+    if (app.was_engaged && !ap.engaged() && !ap.has_plan()) {
+        app.plan_status = "plan complete";
+    }
+    app.was_engaged = ap.engaged();
     const simcore::State orbit{s.t, s.r_eci, s.v_eci};
     const simapp::NodeEditor& e = app.node_editor;
+    const simcore::VehicleConfig& v = app.sim.config().vehicle;
     try {
-        if (app.exec && app.exec->phase() == simcore::ManeuverExecutor::Phase::kDone) {
-            app.exec.reset();
-            app.node.reset();
-            if (!app.queue.empty()) {
-                const App::PlanStep next = app.queue.front();
-                app.queue.pop_front();
-                push_step(app, next, s);  // circularise steps are computed now, from the real orbit
-                if (app.auto_continue) {
-                    start_executor(app, s);
-                }
-            } else {
-                app.auto_continue = false;
-                app.plan_status = "plan complete";
-            }
-        }
         const Eigen::Vector3d dv_rsw(e.radial_mps, e.prograde_mps, e.normal_mps);  // RSW order
         if (action == HudAction::kAddNode && std::isfinite(e.in_s) && e.in_s >= 0.0 &&
             dv_rsw.norm() > 0.0) {
-            push_step(app, {App::StepKind::kNode, {s.t + e.in_s, dv_rsw}}, s);
+            ap.add_node({s.t + e.in_s, dv_rsw});
         } else if ((action == HudAction::kAddNodeAtApoapsis ||
                     action == HudAction::kAddNodeAtPeriapsis) &&
                    dv_rsw.norm() > 0.0) {
             const double nu = action == HudAction::kAddNodeAtApoapsis ? std::numbers::pi : 0.0;
-            push_step(
-                app,
-                {App::StepKind::kNode, {s.t + simcore::time_to_true_anomaly_s(orbit, nu), dv_rsw}},
-                s);
+            ap.add_node({s.t + simcore::time_to_true_anomaly_s(orbit, nu), dv_rsw});
         } else if (action == HudAction::kHohmann) {
             const double r2 = simcore::earth::radius + 1000.0 * e.hohmann_alt_km;
             // First burn: on a near-circular orbit, 300 s (time to slew) plus the burn's own lead
@@ -239,46 +223,34 @@ void plan_frame(App& app, const simcore::VehicleState& s, simapp::HudAction acti
                 const bool raising = r2 > el.a_m;
                 t_burn =
                     s.t + simcore::time_to_true_anomaly_s(orbit, raising ? 0.0 : std::numbers::pi);
-            } else if (!app.sim.config().vehicle.thrusters.empty()) {
-                const simcore::VehicleConfig& v = app.sim.config().vehicle;
+            } else if (!v.thrusters.empty()) {
                 const double dv1 = std::abs(simcore::hohmann_transfer(orbit, t_burn, r2).dv1_mps);
                 t_burn += simcore::burn_lead_s(dv1, v.mass.mass_kg(s.propellant_kg),
                                                v.thrusters.front().force_body_n(1.0).norm(),
                                                v.thrusters.front().exhaust_velocity_mps());
             }
             const simcore::HohmannPlan p = simcore::hohmann_transfer(orbit, t_burn, r2);
-            push_step(app, {App::StepKind::kNode, p.first}, s);
-            push_step(app,
-                      {p.dv1_mps > 0.0 ? App::StepKind::kCircularizeApoapsis
-                                       : App::StepKind::kCircularizePeriapsis,
-                       {}},
-                      s);
+            ap.add_hohmann(orbit, t_burn, r2);
             std::array<char, 128> msg{};
             std::snprintf(msg.data(), msg.size(),
                           "Hohmann: %.1f + %.1f = %.1f m/s, %.2f h transfer", p.dv1_mps, p.dv2_mps,
                           std::abs(p.dv1_mps) + std::abs(p.dv2_mps), p.transfer_s / 3600.0);
             app.plan_status = msg.data();
         } else if (action == HudAction::kCircularizeApoapsis) {
-            push_step(app, {App::StepKind::kCircularizeApoapsis, {}}, s);
+            ap.add_circularize(true);
         } else if (action == HudAction::kCircularizePeriapsis) {
-            push_step(app, {App::StepKind::kCircularizePeriapsis, {}}, s);
+            ap.add_circularize(false);
         } else if (action == HudAction::kPlaneChange) {
-            push_step(
-                app,
-                {App::StepKind::kNode,
-                 simcore::plane_change_node(orbit, e.target_inc_deg * std::numbers::pi / 180.0)},
-                s);
+            ap.add_node(
+                simcore::plane_change_node(orbit, e.target_inc_deg * std::numbers::pi / 180.0));
         } else if (action == HudAction::kDeleteNode) {
-            app.node.reset();
-            app.queue.clear();
+            ap.clear();
             app.plan_status.clear();
-        } else if (action == HudAction::kExecuteNode && app.node) {
-            app.auto_continue = true;
+        } else if (action == HudAction::kExecuteNode) {
+            ap.engage();
             app.plan_status.clear();
-            start_executor(app, s);
         } else if (action == HudAction::kCancelExecute) {
-            app.exec.reset();
-            app.auto_continue = false;
+            ap.disengage();
         }
     } catch (const std::invalid_argument& ex) {
         app.plan_status = std::string("can't plan that: ") + ex.what();
@@ -318,12 +290,12 @@ simcore::Telemetry update_sim(App& app, double frame_dt) {
     };
     // A node being executed takes over completely (pilot inputs are ignored until it is done or
     // cancelled); the executor's phase lives in App, and its commands are logged like any other.
-    std::optional<simcore::ManeuverExecutor>& exec = app.exec;
-    const simcore::ControlLaw law = [&vehicle, input, hold, &dumping, &exec,
+    simcore::Autopilot& autopilot = app.autopilot;
+    const simcore::ControlLaw law = [&vehicle, input, hold, &dumping, &autopilot,
                                      &gains_for](const simcore::VehicleState& s) {
-        if (exec && exec->phase() != simcore::ManeuverExecutor::Phase::kDone) {
+        if (autopilot.engaged()) {
             dumping = false;
-            return exec->command(vehicle, s, gains_for(s));
+            return autopilot.command(vehicle, s, gains_for(s));
         }
         const bool has_frame =
             s.r_eci.cross(s.v_eci).norm() > 1e-12 * s.r_eci.norm() * s.v_eci.norm();
@@ -350,6 +322,14 @@ simcore::Telemetry update_sim(App& app, double frame_dt) {
         ticks = simapp::kMaxIntegratedTicksPerFrame;
         app.fell_behind = true;
     }
+    // Warp-to-node: don't let a frame of fast warp carry the sim past the end of the autopilot's
+    // coast (it would then start its slew late).
+    if (const std::optional<simcore::Epoch> until = app.autopilot.coast_until()) {
+        const double left = *until - app.sim.snapshot().state.t;
+        const auto cap =
+            static_cast<std::int64_t>(std::max(1.0, std::ceil(left / app.sim.config().tick_s)));
+        ticks = std::min(ticks, cap);
+    }
     // Recomputes the command at least every kManualHoldMax_s, so damping and holds stay stable at
     // any frame rate and warp.
     simcore::fly_with(app.sim, law, ticks);
@@ -360,7 +340,7 @@ simcore::Telemetry update_sim(App& app, double frame_dt) {
 }
 
 // Shown instead of the HUD once the sim has thrown: the message and a way to start again.
-simapp::HudAction draw_error(const std::string& message, bool j2) {
+simapp::HudAction draw_error(const std::string& message, simapp::HudAction restart) {
     ImGui::SetNextWindowPos(ImVec2(16.0F, 16.0F), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(420.0F, 0.0F), ImGuiCond_Always);
     ImGui::Begin("Simulation stopped");
@@ -368,7 +348,7 @@ simapp::HudAction draw_error(const std::string& message, bool j2) {
     ImGui::TextWrapped("%s", message.c_str());
     simapp::HudAction action = simapp::HudAction::kNone;
     if (ImGui::Button("Restart")) {
-        action = j2 ? simapp::HudAction::kRestartJ2 : simapp::HudAction::kRestartTwoBody;
+        action = restart;
     }
     ImGui::End();
     return action;
@@ -396,23 +376,34 @@ void UpdateDrawFrame() {
     // The planned node: its predicted (impulsive, two-body) result, for the scene and the HUD.
     std::optional<simcore::State> predicted;
     simapp::NodeView node_view;
-    if (app.node && app.error.empty()) {
+    if (app.autopilot.has_plan() && app.error.empty()) {
         const simcore::State now{snap.state.t, snap.state.r_eci, snap.state.v_eci};
+        std::optional<simcore::ManeuverNode> next;
         try {
-            predicted = simcore::post_burn_state(now, *app.node);
+            next = app.autopilot.next_node(now);
+            // Mid-burn the node's full dv on top of the part already delivered would mislead, so
+            // the prediction is shown only before ignition.
+            const simcore::ManeuverExecutor* ex = app.autopilot.executor();
+            const bool burning =
+                ex != nullptr && ex->phase() == simcore::ManeuverExecutor::Phase::kBurn;
+            if (next && !burning) {
+                predicted = simcore::post_burn_state(now, *next);
+            }
         } catch (const std::invalid_argument&) {
             predicted.reset();  // a non-conic orbit has no Kepler prediction
         }
-        node_view.has_node = true;
-        node_view.t_to_node_s = app.node->t - snap.state.t;
-        node_view.dv_mps = app.node->dv_rsw_mps.norm();
-        if (!vehicle.thrusters.empty()) {
-            const double m = vehicle.mass.mass_kg(snap.state.propellant_kg);
-            const double thrust = vehicle.thrusters.front().force_body_n(1.0).norm();
-            const double ve = vehicle.thrusters.front().exhaust_velocity_mps();
-            node_view.burn_s = simcore::burn_duration_s(node_view.dv_mps, m, thrust, ve);
-            node_view.t_to_ignition_s =
-                node_view.t_to_node_s - simcore::burn_lead_s(node_view.dv_mps, m, thrust, ve);
+        if (next) {
+            node_view.has_node = true;
+            node_view.t_to_node_s = next->t - snap.state.t;
+            node_view.dv_mps = next->dv_rsw_mps.norm();
+            if (!vehicle.thrusters.empty()) {
+                const double m = vehicle.mass.mass_kg(snap.state.propellant_kg);
+                const double thrust = vehicle.thrusters.front().force_body_n(1.0).norm();
+                const double ve = vehicle.thrusters.front().exhaust_velocity_mps();
+                node_view.burn_s = simcore::burn_duration_s(node_view.dv_mps, m, thrust, ve);
+                node_view.t_to_ignition_s =
+                    node_view.t_to_node_s - simcore::burn_lead_s(node_view.dv_mps, m, thrust, ve);
+            }
         }
         if (predicted && simcore::has_conic_elements(*predicted)) {
             const simcore::KeplerianElements el = simcore::elements_from_state(*predicted);
@@ -421,17 +412,20 @@ void UpdateDrawFrame() {
             node_view.apo_alt_m = el.e < 1.0 ? el.a_m * (1.0 + el.e) - simcore::earth::radius
                                              : std::numeric_limits<double>::infinity();
         }
-        node_view.queued = static_cast<int>(app.queue.size());
-        if (app.exec) {
+        node_view.queued = static_cast<int>(app.autopilot.steps()) - 1;
+        if (app.autopilot.engaged()) {
             using Phase = simcore::ManeuverExecutor::Phase;
+            const simcore::ManeuverExecutor* ex = app.autopilot.executor();
             node_view.executing = true;
             node_view.phase =
-                app.exec->phase() == Phase::kAlign
-                    ? (app.exec->ignition_delayed() ? "aligning (ignition held until aligned)"
-                                                    : "aligning, waiting")
-                : app.exec->phase() == Phase::kBurn ? "burning"
-                                                    : "done";
-            node_view.achieved_mps = app.exec->achieved_dv_mps();
+                app.autopilot.coasting() ? "coasting to the node (warp is fine)"
+                : ex == nullptr          ? "starting"
+                : ex->phase() == Phase::kAlign
+                    ? (ex->ignition_delayed() ? "aligning (ignition held until aligned)"
+                                              : "aligning, waiting")
+                : ex->phase() == Phase::kBurn ? "burning"
+                                              : "done";
+            node_view.achieved_mps = ex != nullptr ? ex->achieved_dv_mps() : 0.0;
         }
     }
     node_view.status = app.plan_status.c_str();
@@ -448,7 +442,10 @@ void UpdateDrawFrame() {
                                    app.controls.hold(), app.controls.use_lqr(), app.dumping,
                                    snap.on_rails, app.j2, app.replay_status.c_str()},
                   app.node_editor, node_view)
-            : draw_error(app.error, app.j2);
+            : draw_error(app.error, app.scenario == Scenario::kGeoMission
+                                        ? simapp::HudAction::kRestartGeo
+                                    : app.j2 ? simapp::HudAction::kRestartJ2
+                                             : simapp::HudAction::kRestartTwoBody);
     rlImGuiEnd();
 
     EndDrawing();
@@ -467,9 +464,12 @@ void UpdateDrawFrame() {
         } catch (const std::exception& e) {
             app.replay_status = std::string("replay failed: ") + e.what();
         }
-    } else if (action == simapp::HudAction::kRestartTwoBody ||
-               action == simapp::HudAction::kRestartJ2) {
-        g_app = std::make_unique<App>(action == simapp::HudAction::kRestartJ2);
+    } else if (action == simapp::HudAction::kRestartTwoBody) {
+        g_app = std::make_unique<App>(Scenario::kTwoBody);
+    } else if (action == simapp::HudAction::kRestartJ2) {
+        g_app = std::make_unique<App>(Scenario::kPerturbed);
+    } else if (action == simapp::HudAction::kRestartGeo) {
+        g_app = std::make_unique<App>(Scenario::kGeoMission);
     }
 }
 
@@ -484,7 +484,7 @@ int main() {  // NOLINT(bugprone-exception-escape)
                    FLAG_WINDOW_RESIZABLE);
     InitWindow(kWindowWidth, kWindowHeight, "Orbit GNC");
     rlImGuiSetup(true);  // true = dark theme
-    g_app = std::make_unique<App>(false);
+    g_app = std::make_unique<App>(Scenario::kTwoBody);
 
 #if defined(__EMSCRIPTEN__)
     emscripten_set_main_loop(UpdateDrawFrame, 0, 1);

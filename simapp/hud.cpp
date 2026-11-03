@@ -87,6 +87,9 @@ HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& c
         if (ImGui::Button("Restart: J2 + gravity gradient")) {
             action = HudAction::kRestartJ2;
         }
+        if (ImGui::Button("Restart: GEO mission (upper stage, 300 km)")) {
+            action = HudAction::kRestartGeo;
+        }
         if (ImGui::Button("Verify replay")) {
             action = HudAction::kVerifyReplay;
         }
@@ -110,7 +113,8 @@ HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& c
                                 node.peri_alt_m / 1000.0, node.apo_alt_m / 1000.0);
                 }
             } else {
-                ImGui::Text("%-14s n/a (near-parabolic)", "After burn");
+                ImGui::Text("%-14s %s", "After burn",
+                            node.executing ? "(shown before ignition)" : "n/a (near-parabolic)");
             }
             if (node.queued > 0) {
                 ImGui::Text("%-14s %d more step%s queued", "Plan", node.queued,
