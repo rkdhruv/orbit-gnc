@@ -62,7 +62,7 @@ through the test-first loop in CLAUDE.md.
 - [x] LQR linearised about the hold attitude (CARE by the matrix sign function; Bryson weights)
 - [x] Wheel momentum management: desaturation with thrusters when wheels approach their limit
   - RCS torque couples; gravity-gradient torque as the disturbance that loads the wheels.
-- [ ] Maneuver nodes with the predicted post-burn orbit
+- [x] Maneuver nodes with the predicted post-burn orbit
   - The autopilot executes them: point, wait, burn centred on the node, cut off on achieved Δv.
 - [ ] Hohmann and plane-change calculators that create nodes
 - **Done when:**

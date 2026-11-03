@@ -41,7 +41,7 @@ void text_km(const char* label, double metres) {
 }  // namespace
 
 HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& cfg,
-                   const HudFrame& f) {
+                   const HudFrame& f, NodeEditor& editor, const NodeView& node) {
     HudAction action = HudAction::kNone;
     ImGui::SetNextWindowPos(ImVec2(16.0F, 16.0F), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(390.0F, 0.0F), ImGuiCond_FirstUseEver);
@@ -94,6 +94,48 @@ HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& c
         ImGui::TextWrapped("%s", f.replay_status[0] != '\0'
                                      ? f.replay_status
                                      : "re-run this session from its input log");
+    }
+
+    if (ImGui::CollapsingHeader("Maneuver", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (!node.has_node) {
+            ImGui::InputDouble("prograde m/s", &editor.prograde_mps, 1.0, 10.0, "%.1f");
+            ImGui::InputDouble("normal m/s", &editor.normal_mps, 1.0, 10.0, "%.1f");
+            ImGui::InputDouble("radial m/s", &editor.radial_mps, 1.0, 10.0, "%.1f");
+            ImGui::InputDouble("in (s)", &editor.in_s, 10.0, 100.0, "%.0f");
+            if (ImGui::Button("Add node")) {
+                action = HudAction::kAddNode;
+            }
+        } else {
+            ImGui::Text("%-14s %.1f m/s, burn %.1f s", "Node dv", node.dv_mps, node.burn_s);
+            ImGui::Text("%-14s %.0f s (ignition in %.0f s)", "Node in", node.t_to_node_s,
+                        node.t_to_ignition_s);
+            if (node.predicted_valid) {
+                ImGui::Text("%-14s peri %.1f km, apo %s", "After burn", node.peri_alt_m / 1000.0,
+                            std::isinf(node.apo_alt_m) ? "none (escape)" : "");
+                if (!std::isinf(node.apo_alt_m)) {
+                    ImGui::SameLine(0.0F, 0.0F);
+                    ImGui::Text("%.1f km", node.apo_alt_m / 1000.0);
+                }
+            } else {
+                ImGui::Text("%-14s n/a (near-parabolic)", "After burn");
+            }
+            ImGui::TextDisabled("predicted orbit in cyan (impulsive, two-body)");
+            if (node.executing) {
+                ImGui::Text("%-14s %s, %.2f / %.1f m/s", "Autopilot", node.phase, node.achieved_mps,
+                            node.dv_mps);
+                if (ImGui::Button("Cancel")) {
+                    action = HudAction::kCancelExecute;
+                }
+            } else {
+                if (ImGui::Button("Execute")) {
+                    action = HudAction::kExecuteNode;
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Delete node")) {
+                    action = HudAction::kDeleteNode;
+                }
+            }
+        }
     }
 
     if (ImGui::CollapsingHeader("Orbit", ImGuiTreeNodeFlags_DefaultOpen)) {

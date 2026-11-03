@@ -106,6 +106,9 @@ Each row is a GoogleTest assertion; the bound in the Reference column is what th
 | Momentum dump under gravity gradient, prograde hold, 4000 s | 3 dumps, first at 1261.1 s | 3, first at 1260.0 s; peak saturation 0.8002 |
 | Dumping leaves the hold undisturbed | PD offset τ/Kp = 0.022° | 0.0228° (without dumping: wheel saturates, 140° off) |
 | Dump propellant | ∫\|τ_rcs\| dt / (L·Isp·g₀) ≈ 3.24e-3 kg | 3.2402e-3 kg |
+| Node: 50 m/s prograde at 420 km, impulsive prediction | apoapsis 600.505 km (vis-viva) | 600.505 km |
+| Node flown by the autopilot (400 N, 99 s burn) | Δv 50 m/s; ignition t_node − 49.80 s | 50.0000 m/s; −49.50 s (0.5 s hold); apoapsis 600.410 km |
+| Node 360 s late (slew not done): re-planned burn | same orbit as on time (± 2 km) | apoapsis 600.395 km (stale direction: 587.4 km) |
 
 PD vs LQR, 30° skew-axis slew on the default vehicle (0.1 N·m wheels, I = diag(300, 400, 450) kg·m²):
 

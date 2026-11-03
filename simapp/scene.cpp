@@ -81,7 +81,26 @@ void draw_lat_long_grid(float r, Color color) {
     }
 }
 
-void draw_far_pass(const simcore::Snapshot& snap, float yaw, float pitch, double distance_m) {
+// Orbit line from the osculating conic through s: a ring if closed, an open arc otherwise (the
+// same e < 1 test that sampled it). Drawing must not throw mid-frame: a state with no orbit plane
+// (h = 0) just has no line.
+void draw_orbit_line(const simcore::State& s, const Eigen::Vector3d& origin, Color color) {
+    simcore::OrbitTrack track{{}, false};
+    try {
+        track = simcore::sample_orbit_eci(s, kOrbitPoints, kOrbitRMaxM);
+    } catch (const std::invalid_argument&) {
+        track.points.clear();
+    }
+    const std::vector<Eigen::Vector3d>& pts = track.points;
+    const std::size_t segments = track.closed ? pts.size() : pts.size() - 1;
+    for (std::size_t k = 0; k < segments && pts.size() > 1; ++k) {
+        DrawLine3D(to_rl(to_render(pts[k], origin, kKm)),
+                   to_rl(to_render(pts[(k + 1) % pts.size()], origin, kKm)), color);
+    }
+}
+
+void draw_far_pass(const simcore::Snapshot& snap, const std::optional<simcore::State>& predicted,
+                   float yaw, float pitch, double distance_m) {
     const Eigen::Vector3d& origin = snap.state.r_eci;
     const Vector3 cam_pos = camera_position(yaw, pitch, static_cast<float>(distance_m / kKm));
     const Eigen::Vector3f earth = to_render(Eigen::Vector3d::Zero(), origin, kKm);
@@ -109,22 +128,14 @@ void draw_far_pass(const simcore::Snapshot& snap, float yaw, float pitch, double
     draw_lat_long_grid(1.003F * R_km, Color{90, 140, 210, 255});
     rlPopMatrix();
 
-    // Orbit line from the osculating conic: a ring if closed, an open arc otherwise (the same
-    // e < 1 test that sampled it). Drawing must not throw mid-frame: a state with no orbit plane
-    // (h = 0) just has no line.
-    const simcore::State orbit{snap.state.t, snap.state.r_eci, snap.state.v_eci};
-    simcore::OrbitTrack track{{}, false};
-    try {
-        track = simcore::sample_orbit_eci(orbit, kOrbitPoints, kOrbitRMaxM);
-    } catch (const std::invalid_argument&) {
-        track.points.clear();
-    }
-    const std::vector<Eigen::Vector3d>& pts = track.points;
-    const std::size_t segments = track.closed ? pts.size() : pts.size() - 1;
-    for (std::size_t k = 0; k < segments && pts.size() > 1; ++k) {
-        DrawLine3D(to_rl(to_render(pts[k], origin, kKm)),
-                   to_rl(to_render(pts[(k + 1) % pts.size()], origin, kKm)),
-                   Color{255, 200, 60, 255});
+    // The current orbit, and the one a planned burn would give (with a marker at the burn point).
+    draw_orbit_line(simcore::State{snap.state.t, snap.state.r_eci, snap.state.v_eci}, origin,
+                    Color{255, 200, 60, 255});
+    if (predicted) {
+        draw_orbit_line(*predicted, origin, Color{80, 220, 255, 255});
+        DrawSphere(to_rl(to_render(predicted->r_eci, origin, kKm)),
+                   static_cast<float>(0.006 * std::max(distance_m, 500.0) / kKm),
+                   Color{80, 220, 255, 255});
     }
 
     // Zoomed out, the spacecraft is sub-pixel: a marker of fixed apparent size stands in.
@@ -177,8 +188,9 @@ void Scene::handle_input(bool mouse_free) {
     distance_m_ = std::clamp(distance_m_ * std::pow(1.15, -wheel), kMinDistanceM, kMaxDistanceM);
 }
 
-void Scene::draw(const simcore::Snapshot& snap) const {
-    draw_far_pass(snap, yaw_rad_, pitch_rad_, distance_m_);
+void Scene::draw(const simcore::Snapshot& snap,
+                 const std::optional<simcore::State>& predicted) const {
+    draw_far_pass(snap, predicted, yaw_rad_, pitch_rad_, distance_m_);
     // The far pass's depths are in kilometre units; the near pass needs its own.
     glClear(GL_DEPTH_BUFFER_BIT);
     draw_near_pass(snap, yaw_rad_, pitch_rad_, distance_m_);

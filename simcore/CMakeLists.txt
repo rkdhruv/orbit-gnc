@@ -10,6 +10,7 @@ add_library(simcore STATIC
     src/events/events.cpp
     src/gnc/attitude_control.cpp
     src/gnc/lqr.cpp
+    src/gnc/maneuver.cpp
     src/gnc/momentum.cpp
     src/gnc/wheel_allocation.cpp
     src/integrators/attitude.cpp

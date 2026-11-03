@@ -6,6 +6,7 @@
 #include <rlImGui.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <limits>
@@ -24,6 +25,7 @@
 #include "simcore/dynamics/j2_gravity.hpp"
 #include "simcore/dynamics/point_mass_gravity.hpp"
 #include "simcore/gnc/attitude_control.hpp"
+#include "simcore/gnc/maneuver.hpp"
 #include "simcore/gnc/momentum.hpp"
 #include "simcore/gnc/wheel_allocation.hpp"
 #include "simcore/orbits/elements.hpp"
@@ -111,6 +113,9 @@ struct App {
     simapp::Controls controls;
     bool fell_behind = false;
     bool dumping = false;  // wheel momentum dump in progress (hysteresis state)
+    simapp::NodeEditor node_editor;
+    std::optional<simcore::ManeuverNode> node;      // the planned burn, if any
+    std::optional<simcore::ManeuverExecutor> exec;  // flying it, if Execute was pressed
 };
 
 std::unique_ptr<App> g_app;  // the browser's main-loop callback takes no arguments
@@ -160,23 +165,32 @@ simcore::Telemetry update_sim(App& app, double frame_dt) {
     // wheels near saturation. The hysteresis flag lives in App; every resulting command is
     // submitted and logged, so replay is unaffected.
     bool& dumping = app.dumping;
-    const simcore::ControlLaw law = [&vehicle, input, hold, use_lqr,
-                                     &dumping](const simcore::VehicleState& s) {
+    // Attitude gains from the current inertia (it changes as propellant burns), PD or LQR.
+    const auto gains_for = [&vehicle, use_lqr](const simcore::VehicleState& s) {
+        const Eigen::Matrix3d I = vehicle.mass.inertia_kgm2(s.propellant_kg);
+        double tau_max = std::numeric_limits<double>::infinity();
+        for (int k = 0; k < 3; ++k) {
+            tau_max = std::min(tau_max, simcore::wheel_axis_authority_nm(vehicle, k));
+        }
+        return use_lqr && tau_max > 0.0
+                   ? simcore::lqr_attitude_gains_bryson(
+                         I, simcore::BrysonLimits{simapp::kLqrMaxAngle_rad,
+                                                  simapp::kLqrMaxRate_radps, tau_max})
+                   : simcore::pd_gains(I, simapp::kHoldGains);
+    };
+    // A node being executed takes over completely (pilot inputs are ignored until it is done or
+    // cancelled); the executor's phase lives in App, and its commands are logged like any other.
+    std::optional<simcore::ManeuverExecutor>& exec = app.exec;
+    const simcore::ControlLaw law = [&vehicle, input, hold, &dumping, &exec,
+                                     &gains_for](const simcore::VehicleState& s) {
+        if (exec && exec->phase() != simcore::ManeuverExecutor::Phase::kDone) {
+            dumping = false;
+            return exec->command(vehicle, s, gains_for(s));
+        }
         const bool has_frame =
             s.r_eci.cross(s.v_eci).norm() > 1e-12 * s.r_eci.norm() * s.v_eci.norm();
         if (hold && input.rotate == Eigen::Vector3d::Zero() && has_frame) {
-            // Gains from the current inertia (it changes as propellant burns).
-            const Eigen::Matrix3d I = vehicle.mass.inertia_kgm2(s.propellant_kg);
-            double tau_max = std::numeric_limits<double>::infinity();
-            for (int k = 0; k < 3; ++k) {
-                tau_max = std::min(tau_max, simcore::wheel_axis_authority_nm(vehicle, k));
-            }
-            const simcore::AttitudeGains gains =
-                use_lqr && tau_max > 0.0
-                    ? simcore::lqr_attitude_gains_bryson(
-                          I, simcore::BrysonLimits{simapp::kLqrMaxAngle_rad,
-                                                   simapp::kLqrMaxRate_radps, tau_max})
-                    : simcore::pd_gains(I, simapp::kHoldGains);
+            const simcore::AttitudeGains gains = gains_for(s);
             dumping = simcore::desat_active(dumping, vehicle, s, simcore::DesatSettings{});
             return simcore::attitude_command_with_desat(
                 vehicle, s, simcore::hold_target(*hold, simcore::State{s.t, s.r_eci, s.v_eci}),
@@ -241,7 +255,47 @@ void UpdateDrawFrame() {
 
     BeginDrawing();
     ClearBackground(Color{.r = 4, .g = 5, .b = 10, .a = 255});
-    app.scene.draw(snap);
+    // The planned node: its predicted (impulsive, two-body) result, for the scene and the HUD.
+    std::optional<simcore::State> predicted;
+    simapp::NodeView node_view;
+    if (app.node && app.error.empty()) {
+        const simcore::State now{snap.state.t, snap.state.r_eci, snap.state.v_eci};
+        try {
+            predicted = simcore::post_burn_state(now, *app.node);
+        } catch (const std::invalid_argument&) {
+            predicted.reset();  // a non-conic orbit has no Kepler prediction
+        }
+        node_view.has_node = true;
+        node_view.t_to_node_s = app.node->t - snap.state.t;
+        node_view.dv_mps = app.node->dv_rsw_mps.norm();
+        if (!vehicle.thrusters.empty()) {
+            const double m = vehicle.mass.mass_kg(snap.state.propellant_kg);
+            const double thrust = vehicle.thrusters.front().force_body_n(1.0).norm();
+            const double ve = vehicle.thrusters.front().exhaust_velocity_mps();
+            node_view.burn_s = simcore::burn_duration_s(node_view.dv_mps, m, thrust, ve);
+            node_view.t_to_ignition_s =
+                node_view.t_to_node_s - simcore::burn_lead_s(node_view.dv_mps, m, thrust, ve);
+        }
+        if (predicted && simcore::has_conic_elements(*predicted)) {
+            const simcore::KeplerianElements el = simcore::elements_from_state(*predicted);
+            node_view.predicted_valid = true;
+            node_view.peri_alt_m = el.a_m * (1.0 - el.e) - simcore::earth::radius;
+            node_view.apo_alt_m = el.e < 1.0 ? el.a_m * (1.0 + el.e) - simcore::earth::radius
+                                             : std::numeric_limits<double>::infinity();
+        }
+        if (app.exec) {
+            using Phase = simcore::ManeuverExecutor::Phase;
+            node_view.executing = true;
+            node_view.phase =
+                app.exec->phase() == Phase::kAlign
+                    ? (app.exec->ignition_delayed() ? "aligning (ignition held until aligned)"
+                                                    : "aligning, waiting")
+                : app.exec->phase() == Phase::kBurn ? "burning"
+                                                    : "done";
+            node_view.achieved_mps = app.exec->achieved_dv_mps();
+        }
+    }
+    app.scene.draw(snap, predicted);
 
     rlImGuiBegin();
     const simapp::HudAction action =
@@ -252,13 +306,37 @@ void UpdateDrawFrame() {
                                    GetFPS(), app.fell_behind, app.controls.warp(),
                                    app.controls.throttle(), app.controls.rate_damping(),
                                    app.controls.hold(), app.controls.use_lqr(), app.dumping,
-                                   snap.on_rails, app.j2, app.replay_status.c_str()})
+                                   snap.on_rails, app.j2, app.replay_status.c_str()},
+                  app.node_editor, node_view)
             : draw_error(app.error, app.j2);
     rlImGuiEnd();
 
     EndDrawing();
 
-    if (action == simapp::HudAction::kToggleController) {
+    // A finished node is cleared, handing control back to the pilot's hold or manual flight.
+    if (app.exec && app.exec->phase() == simcore::ManeuverExecutor::Phase::kDone) {
+        app.exec.reset();
+        app.node.reset();
+    }
+    if (action == simapp::HudAction::kAddNode) {
+        const simapp::NodeEditor& e = app.node_editor;
+        if (std::isfinite(e.in_s) && e.in_s >= 0.0 &&
+            Eigen::Vector3d(e.radial_mps, e.prograde_mps, e.normal_mps).norm() > 0.0) {
+            app.node = simcore::ManeuverNode{
+                snap.state.t + e.in_s,
+                Eigen::Vector3d(e.radial_mps, e.prograde_mps, e.normal_mps)};  // RSW order
+        }
+    } else if (action == simapp::HudAction::kDeleteNode) {
+        app.node.reset();
+    } else if (action == simapp::HudAction::kExecuteNode && app.node) {
+        try {
+            app.exec.emplace(vehicle, snap.state, *app.node, simcore::kManualHoldMax_s);
+        } catch (const std::exception& e) {
+            app.replay_status = std::string("can't execute: ") + e.what();
+        }
+    } else if (action == simapp::HudAction::kCancelExecute) {
+        app.exec.reset();
+    } else if (action == simapp::HudAction::kToggleController) {
         app.controls.toggle_lqr();
     } else if (action >= simapp::HudAction::kHoldOff) {
         const auto i = static_cast<int>(action) - static_cast<int>(simapp::HudAction::kHoldOff);

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+
+#include "simcore/dynamics/state.hpp"
 #include "simcore/sim/simulation.hpp"
 
 namespace simapp {
@@ -14,7 +17,9 @@ class Scene {
 public:
     // mouse_free: false while ImGui is using the mouse, so dragging a panel doesn't turn the view.
     void handle_input(bool mouse_free);
-    void draw(const simcore::Snapshot& snap) const;
+    // predicted: the state just after a planned burn (drawn as a second orbit line, with a marker
+    // at the burn point), if a maneuver node is set.
+    void draw(const simcore::Snapshot& snap, const std::optional<simcore::State>& predicted) const;
     [[nodiscard]] double camera_distance_m() const { return distance_m_; }
 
 private:

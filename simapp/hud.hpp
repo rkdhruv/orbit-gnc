@@ -28,6 +28,30 @@ struct HudFrame {
     const char* replay_status;  // result of the last "Verify replay", or "" if none yet
 };
 
+// The maneuver-node editor's inputs (front-end state, edited by the HUD). Prograde is along-track
+// (S), normal along h (W), radial along r (R).
+struct NodeEditor {
+    double prograde_mps{50.0};
+    double normal_mps{0.0};
+    double radial_mps{0.0};
+    double in_s{600.0};  // node time from now
+};
+
+// What the HUD shows about the planned node (computed by the app each frame).
+struct NodeView {
+    bool has_node{false};
+    double t_to_node_s{0.0};
+    double dv_mps{0.0};
+    double burn_s{0.0};
+    double t_to_ignition_s{0.0};
+    bool predicted_valid{false};  // the post-burn orbit has conic elements
+    double peri_alt_m{0.0};
+    double apo_alt_m{0.0};
+    bool executing{false};
+    const char* phase{""};
+    double achieved_mps{0.0};
+};
+
 // What the pilot clicked this frame.
 enum class HudAction : std::uint8_t {
     kNone,
@@ -35,6 +59,10 @@ enum class HudAction : std::uint8_t {
     kRestartJ2,  // the perturbed scenario: J2 + gravity gradient
     kVerifyReplay,
     kToggleController,
+    kAddNode,
+    kDeleteNode,
+    kExecuteNode,
+    kCancelExecute,
     kHoldOff,
     kHoldPrograde,  // the kHold* values after kHoldOff follow HoldMode's order
     kHoldRetrograde,
@@ -44,9 +72,9 @@ enum class HudAction : std::uint8_t {
     kHoldRadialIn,
 };
 
-// The ImGui panel: Flight, Orbit, Vehicle, Attitude and Wheels sections. Only formats telemetry
-// (simcore computes it); SI is converted to km, minutes and degrees here, at the UI.
+// The ImGui panel: Flight, Maneuver, Orbit, Vehicle, Attitude and Wheels sections. Only formats
+// telemetry (simcore computes it); SI is converted to km, minutes and degrees here, at the UI.
 HudAction draw_hud(const simcore::Telemetry& tm, const simcore::VehicleConfig& cfg,
-                   const HudFrame& f);
+                   const HudFrame& f, NodeEditor& editor, const NodeView& node);
 
 }  // namespace simapp
