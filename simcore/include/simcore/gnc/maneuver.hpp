@@ -19,7 +19,7 @@ Eigen::Matrix3d rsw_to_eci(const State& s);
 // A planned burn: an impulsive dv in the RSW frame of the orbit at time t.
 struct ManeuverNode {
     Epoch t;
-    Eigen::Vector3d dv_rsw_mps;
+    Eigen::Vector3d dv_rsw_mps{Eigen::Vector3d::Zero()};  // Eigen doesn't zero-initialise
 };
 
 // The state at the node, Kepler-propagated from `now` (exact for two-body; with J2 or drag it is

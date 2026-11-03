@@ -22,8 +22,8 @@ enum class HoldMode : std::uint8_t {
 
 // A wanted attitude and the inertial rate at which it is turning.
 struct AttitudeTarget {
-    Eigen::Quaterniond q_body_to_eci;
-    Eigen::Vector3d w_eci_radps;
+    Eigen::Quaterniond q_body_to_eci{Eigen::Quaterniond::Identity()};
+    Eigen::Vector3d w_eci_radps{Eigen::Vector3d::Zero()};  // Eigen doesn't zero-initialise
 };
 
 // The hold frame for `mode` at the orbit state: body x along the mode's direction d, roll fixed by
