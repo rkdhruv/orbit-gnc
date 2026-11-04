@@ -144,6 +144,53 @@ TEST(Momentum, DumpingLeavesTheAttitudeTorqueUnchanged) {
     EXPECT_NE(c.rcs[1], 0.0);
 }
 
+// The dump yields to the attitude torque (M4 review: capping the dump on its own left the wheels
+// short when the attitude torque was large, so the body got a skewed torque). The wheels' share
+// for the combined command tau_att - tau_rcs is 80% of each limit (0.08 N m here); the attitude
+// torque gets it first and the dump only what is left:
+//   - a 30 deg error asks for more than the wheels can give (PD: ~2000 * 0.0025 * 0.52 = 2.6 N m),
+//     so there is nothing left: no RCS, and the body torque is the attitude torque's direction,
+//     scaled down (cross product with tau_att ~0);
+//   - a 0.2 deg error asks for ~0.017 N m; the dump (0.048 N m wanted) is cut to what fits, every
+//     wheel command stays within 0.08 N m, and wheels + RCS give the body exactly tau_att (1e-15).
+TEST(Momentum, DumpYieldsToTheAttitudeTorque) {
+    const VehicleConfig cfg = test_vehicle();
+    const simcore::AttitudeTarget target{Eigen::Quaterniond::Identity(), Eigen::Vector3d::Zero()};
+    const simcore::AttitudeGains g = simcore::pd_gains(inertia(), simcore::PdGains{0.05, 0.7});
+    const auto net_torque = [&cfg](const simcore::VehicleCommand& c) {
+        Eigen::Vector3d net = Eigen::Vector3d::Zero();
+        for (std::size_t j = 0; j < cfg.wheels.size(); ++j) {
+            net -= c.wheel_torque_nm[j] * cfg.wheels[j].axis_body();
+        }
+        for (std::size_t j = 0; j < cfg.rcs.size(); ++j) {
+            net += cfg.rcs[j].torque_body_nm(c.rcs[j]);
+        }
+        return net;
+    };
+    VehicleState big = resting_with_wheels({0.0, 2.4, 0.0});
+    big.q_body_to_eci =
+        Eigen::AngleAxisd(30.0 * kPi / 180.0, Eigen::Vector3d(1, 2, 2).normalized());
+    const simcore::VehicleCommand cb =
+        simcore::attitude_command_with_desat(cfg, big, target, g, true, DesatSettings{});
+    for (const double u : cb.rcs) {
+        EXPECT_EQ(u, 0.0);
+    }
+    const Eigen::Vector3d tau_big = simcore::attitude_torque_body(cfg, big, target, g);
+    EXPECT_LE(net_torque(cb).normalized().cross(tau_big.normalized()).norm(), 1e-12);
+
+    VehicleState small = resting_with_wheels({0.0, 2.4, 0.0});
+    small.q_body_to_eci =
+        Eigen::AngleAxisd(0.2 * kPi / 180.0, Eigen::Vector3d(1, 2, 2).normalized());
+    const simcore::VehicleCommand cs =
+        simcore::attitude_command_with_desat(cfg, small, target, g, true, DesatSettings{});
+    EXPECT_NE(cs.rcs[1], 0.0);
+    for (const double t : cs.wheel_torque_nm) {
+        EXPECT_LE(std::abs(t), 0.08 + 1e-15);
+    }
+    EXPECT_LE((net_torque(cs) - simcore::attitude_torque_body(cfg, small, target, g)).norm(),
+              1e-15);
+}
+
 // Closed loop: prograde hold (PD, wn = 0.05, zeta = 0.7) on a 420 km equatorial circular orbit
 // with gravity gradient, 4000 s at 0.5 s ticks. In the prograde frame r_hat_b = body z, so the
 // gravity-gradient torque is constant in body axes:

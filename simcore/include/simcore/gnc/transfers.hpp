@@ -33,10 +33,12 @@ HohmannPlan hohmann_transfer(const State& now, const Epoch& t_burn, double r_tar
 ManeuverNode circularize_node(const State& now, bool at_apoapsis, double mu = earth::mu);
 
 // Change the inclination to i_target at the next equator crossing (ascending or descending node,
-// whichever comes first): v is rotated about r_hat by the inclination change, keeping its size,
-// so dv_rsw = (0, v (cos di - 1), +-v sin di), |dv| = 2 v sin(di / 2); the sign is the one that
-// reaches i_target. Throws for an orbit with no line of nodes (equatorial, i < 1e-6 rad) or one
-// that isn't elliptic.
+// whichever comes first): v is rotated about r_hat by the inclination change. That keeps its size
+// and its radial part and turns only the along-track speed v_S (< |v| on an eccentric orbit away
+// from the apsides), so dv_rsw = (0, v_S (cos di - 1), +-v_S sin di), |dv| = 2 v_S sin(di / 2);
+// the sign is the one that reaches i_target. (It takes the first node, not necessarily the
+// cheaper one: the node farther from Earth has the smaller v_S.) Throws for an orbit with no line
+// of nodes (equatorial, i < 1e-6 rad) or one that isn't elliptic.
 ManeuverNode plane_change_node(const State& now, double i_target_rad, double mu = earth::mu);
 
 }  // namespace simcore

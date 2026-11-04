@@ -42,8 +42,10 @@ std::vector<double> rcs_dump_command(const VehicleConfig& cfg, const VehicleStat
                                      const DesatSettings& settings);
 
 // An attitude command (attitude_torque_body with `gains`) that also dumps wheel momentum when
-// `dumping`: RCS from rcs_dump_command, wheels allocated for tau_att - tau_rcs (the torque the
-// RCS will actually make). Main engine at `throttle`. Throws as attitude_command does.
+// `dumping`: RCS from rcs_dump_command, cut back so that, on top of tau_att, the wheels still fit
+// within kDumpWheelShare of their limits (no dump at all if tau_att alone needs more), and wheels
+// allocated for tau_att - tau_rcs (the torque the RCS will actually make), so the body sees
+// tau_att. Main engine at `throttle`. Throws as attitude_command does.
 VehicleCommand attitude_command_with_desat(const VehicleConfig& cfg, const VehicleState& s,
                                            const AttitudeTarget& target, const AttitudeGains& gains,
                                            bool dumping, const DesatSettings& settings,

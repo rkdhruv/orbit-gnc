@@ -143,6 +143,39 @@ TEST(Transfers, PlaneChangeAtTheNextNode) {
     EXPECT_LT(el.e, 1e-9);
 }
 
+// Plane change on eccentric orbits, at a node away from the apsides (M4 review: the burn used |v|
+// instead of the horizontal speed, so it changed the orbit's size and missed the inclination).
+// Rotating v about r_hat leaves its radial part alone: dv_rsw = (0, v_S (cos di - 1),
+// +-v_S sin di), |dv| = 2 v_S sin(di / 2), with v_S the along-track speed.
+//   GTO (300 x 35,786 km, a = 24421.137 km, e = 0.726543), i 28.5 -> 0 deg, argp 90 deg, from
+//   periapsis: the next node is the descending one at nu = 90 deg, where r = p = 11530.089 km and
+//   v_S = sqrt(mu / p) = 5879.665 m/s (v_R = e v_S = 4271.828 m/s): |dv| = 2894.598 m/s (|v|
+//   would have given 3577.920).
+//   a = 10,000 km, e = 0.3, i 20 -> 10 deg, argp 60 deg, from periapsis: node at nu = 120 deg,
+//   v_S = 5625.578 m/s, |dv| = 980.603 m/s.
+// Checks: inclination on target, and a, e and the speed unchanged (1e-9). Bounds: dv 1e-3 m/s.
+TEST(Transfers, PlaneChangeOnEccentricOrbits) {
+    const double a_gto = 0.5 * (kR300 + kRGeo);
+    const double e_gto = (kRGeo - kR300) / (kRGeo + kR300);
+    struct Case {
+        double a, e, i0, argp, i1, dv;
+    };
+    for (const Case c : {Case{a_gto, e_gto, 28.5 * kDeg, 90.0 * kDeg, 0.0, 2894.598},
+                         Case{1.0e7, 0.3, 20.0 * kDeg, 60.0 * kDeg, 10.0 * kDeg, 980.603}}) {
+        SCOPED_TRACE(c.dv);
+        const State s = state_from(c.a, c.e, c.i0, 30.0 * kDeg, c.argp, 0.0);
+        const ManeuverNode n = simcore::plane_change_node(s, c.i1);
+        EXPECT_NEAR(n.dv_rsw_mps.norm(), c.dv, 1e-3);
+        const State at = simcore::node_state(s, n);
+        const State post = simcore::post_burn_state(s, n);
+        const simcore::KeplerianElements el = simcore::elements_from_state(post);
+        EXPECT_NEAR(el.i_rad, c.i1, 1e-9);
+        EXPECT_NEAR(el.a_m / c.a, 1.0, 1e-9);
+        EXPECT_NEAR(el.e, c.e, 1e-9);
+        EXPECT_NEAR(post.v_eci.norm() / at.v_eci.norm(), 1.0, 1e-12);
+    }
+}
+
 TEST(Transfers, RejectsInvalidRequests) {
     const State hyper = state_from(-7.0e6, 2.0, 0.3, 0.0, 0.0, 0.4);
     EXPECT_THROW((void)simcore::time_to_true_anomaly_s(hyper, 1.0), std::invalid_argument);

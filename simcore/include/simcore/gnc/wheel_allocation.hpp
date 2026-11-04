@@ -16,6 +16,10 @@ namespace simcore {
 std::vector<double> wheel_torques_for_body_torque(const VehicleConfig& cfg,
                                                   const Eigen::Vector3d& tau_body_nm);
 
+// The same allocation, -A+ tau_b, without the torque limits (size 0 with no wheels).
+Eigen::VectorXd wheel_torques_unlimited(const VehicleConfig& cfg,
+                                        const Eigen::Vector3d& tau_body_nm);
+
 // The largest factor s for which s tau_b fits within every wheel's torque limit under this
 // allocation (+infinity for tau_b = 0 or no wheels needed; 0 with no wheels and tau_b != 0).
 double wheel_torque_headroom(const VehicleConfig& cfg, const Eigen::Vector3d& tau_body_nm);

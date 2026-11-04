@@ -54,6 +54,15 @@ std::vector<double> wheel_torques_for_body_torque(const VehicleConfig& cfg,
     return out;
 }
 
+Eigen::VectorXd wheel_torques_unlimited(const VehicleConfig& cfg,
+                                        const Eigen::Vector3d& tau_body_nm) {
+    SIMCORE_CHECK(tau_body_nm.allFinite(), "body torque must be finite");
+    if (cfg.wheels.empty()) {
+        return Eigen::VectorXd(0);
+    }
+    return allocate(cfg, tau_body_nm);
+}
+
 double wheel_torque_headroom(const VehicleConfig& cfg, const Eigen::Vector3d& tau_body_nm) {
     SIMCORE_CHECK(tau_body_nm.allFinite(), "body torque must be finite");
     if (tau_body_nm == Eigen::Vector3d::Zero()) {

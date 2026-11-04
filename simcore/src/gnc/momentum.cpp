@@ -78,13 +78,38 @@ VehicleCommand attitude_command_with_desat(const VehicleConfig& cfg, const Vehic
         return c;
     }
     c.rcs = rcs_dump_command(cfg, s, settings);
-    Eigen::Vector3d tau_rcs = Eigen::Vector3d::Zero();
-    for (std::size_t j = 0; j < cfg.rcs.size(); ++j) {
-        tau_rcs += cfg.rcs[j].torque_body_nm(c.rcs[j]);
+    const auto rcs_torque = [&cfg, &c] {
+        Eigen::Vector3d tau = Eigen::Vector3d::Zero();
+        for (std::size_t j = 0; j < cfg.rcs.size(); ++j) {
+            tau += cfg.rcs[j].torque_body_nm(c.rcs[j]);
+        }
+        return tau;
+    };
+    const Eigen::Vector3d tau_att = attitude_torque_body(cfg, s, target, gains);
+    // The attitude torque has first call on the wheels. The allocation is linear, so the wheels
+    // run a + share d, with a for tau_att and d for countering the full dump (-tau_rcs); the
+    // dump gets the largest share in [0, 1] keeping every |a_j + share d_j| within
+    // kDumpWheelShare of wheel j's limit L_j: share <= (L_j - sgn(d_j) a_j) / |d_j|. None if
+    // the attitude torque alone needs more, as when slewing; then the wheels just slew.
+    const Eigen::VectorXd a = wheel_torques_unlimited(cfg, tau_att);
+    const Eigen::VectorXd d = wheel_torques_unlimited(cfg, -rcs_torque());
+    double share = 1.0;
+    for (Eigen::Index j = 0; j < a.size(); ++j) {
+        const double L = kDumpWheelShare * cfg.wheels[static_cast<std::size_t>(j)].max_torque_nm();
+        if (std::abs(a(j)) > L) {
+            share = 0.0;
+            break;
+        }
+        if (d(j) != 0.0) {
+            share = std::min(share, (L - std::copysign(1.0, d(j)) * a(j)) / std::abs(d(j)));
+        }
+    }
+    share = std::max(share, 0.0);
+    for (double& u : c.rcs) {
+        u *= share;
     }
     // The wheels make up the rest, so the body sees exactly tau_att.
-    c.wheel_torque_nm =
-        wheel_torques_for_body_torque(cfg, attitude_torque_body(cfg, s, target, gains) - tau_rcs);
+    c.wheel_torque_nm = wheel_torques_for_body_torque(cfg, tau_att - rcs_torque());
     return c;
 }
 

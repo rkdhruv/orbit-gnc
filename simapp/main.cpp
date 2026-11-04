@@ -310,8 +310,19 @@ simcore::Telemetry update_sim(App& app, double frame_dt) {
         return simcore::manual_command(vehicle, input, s);
     };
     // Fast warp only if the next tick would be a rails coast (coasting, not rotating, a conic
-    // orbit clear of the surface, two-body environment); otherwise integration's limit.
-    const bool can_rail = app.sim.would_rail(law(app.sim.snapshot().state));
+    // orbit clear of the surface, two-body environment); otherwise integration's limit. The
+    // autopilot isn't probed through `law` (command() advances its plan); its last command says
+    // whether it is coasting, and a coast is the all-zero command.
+    bool can_rail = false;
+    if (autopilot.engaged()) {
+        simcore::VehicleCommand coast;
+        coast.throttle.assign(vehicle.thrusters.size(), 0.0);
+        coast.wheel_torque_nm.assign(vehicle.wheels.size(), 0.0);
+        coast.rcs.assign(vehicle.rcs.size(), 0.0);
+        can_rail = autopilot.coasting() && app.sim.would_rail(coast);
+    } else {
+        can_rail = app.sim.would_rail(law(app.sim.snapshot().state));
+    }
     app.controls.clamp_warp(can_rail ? simapp::kWarpLevels.back() : simapp::kMaxIntegratedWarp);
 
     const simcore::TickScheduler::FrameTicks ft =

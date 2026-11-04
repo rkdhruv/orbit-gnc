@@ -36,7 +36,9 @@ public:
     void add_hohmann(const State& now, const Epoch& t_burn, double r_target_m);
     void clear();  // also disengages
 
-    // Start (or stop) flying the plan. Engaging an empty plan does nothing.
+    // Start (or stop) flying the plan. Engaging an empty plan does nothing. Disengaging mid-burn
+    // keeps the dv already delivered: the step is re-planned as what is left of it (from the
+    // last commanded state), to be flown on the next engage.
     void engage();
     void disengage();
 
@@ -51,11 +53,16 @@ public:
     // While coasting: when the coast ends (ignition - coast_margin_s), so a front end warping
     // through the coast can stop there rather than overshoot it.
     [[nodiscard]] std::optional<Epoch> coast_until() const;
-    // dv achieved by each completed burn, in order (from propellant used).
+    // dv achieved by each completed burn, in order (from propellant used; a burn resumed after a
+    // disengage counts once, in total).
     [[nodiscard]] const std::vector<double>& burns_dv_mps() const { return burns_; }
+    // True if the last engage ended with a burn abandoned (ManeuverExecutor::aborted): that step
+    // is dropped and the autopilot disengages, leaving any later steps planned.
+    [[nodiscard]] bool aborted() const { return aborted_; }
 
     // The command for the next hold: advances the plan (starts the next step's executor, retires
-    // a finished one, disengages when the plan is done) and coasts while far from ignition.
+    // a finished one, skips a step with no dv to burn, disengages when the plan is done or a burn
+    // is abandoned) and coasts while far from ignition.
     VehicleCommand command(const VehicleConfig& cfg, const VehicleState& s,
                            const AttitudeGains& gains);
 
@@ -65,6 +72,7 @@ private:
         Kind kind{Kind::kNode};
         ManeuverNode node;
         BurnCutoff cutoff;
+        double delivered_mps{0.0};  // dv already burnt on this step before a disengage
     };
     [[nodiscard]] ManeuverNode materialize(const Step& step, const State& now) const;
     static VehicleCommand coast(const VehicleConfig& cfg);
@@ -77,6 +85,7 @@ private:
     bool engaged_{false};
     bool coasting_{false};
     std::vector<double> burns_;
+    bool aborted_{false};
 };
 
 }  // namespace simcore

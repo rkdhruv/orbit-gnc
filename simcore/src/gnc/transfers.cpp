@@ -81,13 +81,15 @@ ManeuverNode plane_change_node(const State& now, double i_target_rad, double mu)
     const Epoch t = now.t + std::min(t_asc, t_desc);
     const State at = kepler_propagate(now, t, mu);
     const Eigen::Matrix3d M = rsw_to_eci(at);
-    const double v = at.v_eci.norm();
+    // Rotating v about r_hat leaves its radial part alone and turns only the horizontal (along-
+    // track) part, v_S: on an eccentric orbit, away from the apsides, v_S < |v|.
+    const double v_s = at.v_eci.dot(M.col(1));
     const double di = std::abs(i_target_rad - el.i_rad);
     // Both rotation senses about r_hat; keep the one whose inclination lands on the target.
     Eigen::Vector3d best = Eigen::Vector3d::Zero();
     double best_err = std::numeric_limits<double>::infinity();
     for (const double sign : {1.0, -1.0}) {
-        const Eigen::Vector3d dv_rsw(0.0, v * (std::cos(di) - 1.0), sign * v * std::sin(di));
+        const Eigen::Vector3d dv_rsw(0.0, v_s * (std::cos(di) - 1.0), sign * v_s * std::sin(di));
         State after = at;
         after.v_eci += M * dv_rsw;
         const double err = std::abs(elements_from_state(after, mu).i_rad - i_target_rad);

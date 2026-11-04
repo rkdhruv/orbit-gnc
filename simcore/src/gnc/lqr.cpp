@@ -1,6 +1,7 @@
 #include "simcore/gnc/lqr.hpp"
 
 #include <cmath>
+#include <limits>
 
 #include <Eigen/Cholesky>
 #include <Eigen/Eigenvalues>
@@ -46,6 +47,7 @@ Eigen::MatrixXd solve_care(const Eigen::MatrixXd& A, const Eigen::MatrixXd& B,
     // once the iterates are close, where it would only slow the final quadratic convergence.
     bool converged = false;
     bool scale = true;
+    double prev_change = std::numeric_limits<double>::infinity();
     for (int it = 0; it < 100; ++it) {
         const Eigen::PartialPivLU<Eigen::MatrixXd> lu(Z);
         double c = 1.0;
@@ -59,10 +61,14 @@ Eigen::MatrixXd solve_care(const Eigen::MatrixXd& A, const Eigen::MatrixXd& B,
         if (change < 1e-2) {
             scale = false;
         }
-        if (change < 1e-14) {
+        // Done at 1e-14, or once the unscaled (quadratically converging) steps are small and
+        // stop shrinking: that is the roundoff floor, which for a badly scaled problem can sit
+        // above 1e-14.
+        if (change < 1e-14 || (!scale && change < 1e-8 && change >= prev_change)) {
             converged = true;
             break;
         }
+        prev_change = change;
     }
     SIMCORE_CHECK(converged, "CARE: matrix sign iteration did not converge");
 

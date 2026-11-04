@@ -90,9 +90,20 @@ public:
     [[nodiscard]] double burn_duration_s() const { return t_burn_; }
     // True if the scheduled ignition time came before the vehicle was aligned.
     [[nodiscard]] bool ignition_delayed() const { return delayed_; }
+    // True if the burn was abandoned unburnt (kDone): still not aligned when re-planning it would
+    // have put it more than a quarter of an orbit after the planned node.
+    [[nodiscard]] bool aborted() const { return aborted_; }
+    // dv burnt by the end of the last commanded hold: achieved_dv_mps() is measured at the start
+    // of a hold, and the engine runs on through it at the throttle commanded.
+    [[nodiscard]] double committed_dv_mps() const;
+    // What is left of the burn as a node at the last commanded state: the burn direction scaled
+    // to the dv not yet committed (dv_target - committed, at least 0), in that state's RSW frame.
+    // Used to resume a burn stopped part-way.
+    [[nodiscard]] ManeuverNode remaining_node() const;
 
 private:
     void aim(const State& at);  // set dir_eci_ and target_'s attitude for a burn applied at `at`
+    [[nodiscard]] double apsis_radius(const State& o) const;  // the cutoff's apsis of an orbit
     [[nodiscard]] double remaining_dv(const VehicleState& s) const;
 
     ManeuverNode node_;
@@ -106,11 +117,17 @@ private:
     Eigen::Vector3d dir_eci_;
     AttitudeTarget target_;
     Epoch t_ignition_;
+    Epoch t_node_planned_;  // the node time as given, before any late re-plan
     double t_burn_;
+    double late_limit_s_;  // a quarter of the orbit period (infinite for an open orbit)
     Phase phase_{Phase::kAlign};
     double m_ignition_{0.0};
+    double m_hold_end_{0.0};  // mass at the end of the last commanded hold, once burning
     double achieved_{0.0};
+    double cutoff_side_{1.0};  // sign of (target - apsis) at ignition, for an apsis cutoff
     bool delayed_{false};
+    bool aborted_{false};
+    State last_;  // the last commanded state
 };
 
 }  // namespace simcore

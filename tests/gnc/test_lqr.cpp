@@ -151,7 +151,8 @@ TEST(Lqr, BrysonWeightsPutTheErrorLimitAtTheTorqueLimit) {
 
 // A 30 deg slew about a skew axis with the default vehicle's 0.1 N m wheels, from rest, to an
 // inertial target. PD at the app's hold gains (wn = 0.05 rad/s, zeta = 0.7) asks for
-// I wn^2 theta ~ 450 * 0.0025 * 0.52 = 0.59 N m at the start: 6x the limit, so it saturates
+// I wn^2 theta ~ 450 * 0.0025 * 0.52 = 0.59 N m in all; split over the three wheels on this skew
+// axis the largest single request is 0.393 N m (measured): ~4x the limit, so it saturates
 // (the allocation scales it down) and is no longer the linear loop it was designed as. LQR with
 // Bryson limits (30 deg, 0.5 deg/s, 0.1 N m) asks for at most the limit by construction, so it
 // stays linear. Claims checked: both settle below 0.1 deg within 900 s; PD's requested torque
