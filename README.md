@@ -109,7 +109,7 @@ Each row is a GoogleTest assertion; the bound in the Reference column is what th
 | Node: 50 m/s prograde at 420 km, impulsive prediction | apoapsis 600.505 km (vis-viva) | 600.505 km |
 | Node flown by the autopilot (400 N, 99 s burn) | Δv 50 m/s; ignition t_node − 49.80 s | 50.0000 m/s; −49.50 s (0.5 s hold); apoapsis 600.410 km |
 | Node 360 s late (slew not done): re-planned burn | same orbit as on time (± 2 km) | apoapsis 600.395 km (stale direction: 587.4 km) |
-| Hohmann 300 km → GEO (impulsive) | ≈ 3.89 km/s (CLAUDE.md) | 2425.732 + 1466.824 = 3892.557 m/s, 5.28 h |
+| Hohmann 300 km → GEO (impulsive) | ≈ 3.89 km/s (CONVENTIONS) | 2425.732 + 1466.824 = 3892.557 m/s, 5.28 h |
 | Hohmann plan flown impulsively | circular at GEO | radius to 1e-7, e < 1e-8 |
 | Plane change 51.6° → 41.6° at 420 km | 2v sin(Δi/2) = 1334.750 m/s | i = 41.6° to 1e-9 rad; RAAN, size unchanged |
 | Apoapsis-targeted burn, 300 km → apo 1000 km | apoapsis on target (impulsive dv 190.034 m/s) | 1000.005 km, 190.049 m/s |

@@ -65,7 +65,7 @@ TEST(Transfers, TimeToTrueAnomaly) {
     EXPECT_NEAR(simcore::kepler_propagate(e2, e2.t + t).r_eci.norm() / 6.0e6, 1.0, 1e-9);
 }
 
-// Hohmann 300 km -> 35,786 km (GEO), the CLAUDE.md reference: dv1 = 2425.732 m/s,
+// Hohmann 300 km -> 35,786 km (GEO), the CONVENTIONS reference check: dv1 = 2425.732 m/s,
 // dv2 = 1466.824 m/s, total 3892.557 m/s (~3.89 km/s), transfer 18990.21 s (5.28 h). Flown
 // impulsively the plan lands on the GEO circle: after node 1 the apoapsis is r_GEO, and after
 // node 2 (half an orbit later) the orbit is circular at r_GEO. Bounds: dv 1e-3 m/s; orbit

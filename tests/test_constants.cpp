@@ -1,4 +1,4 @@
-// M1.1: physical constants match the values fixed in CLAUDE.md.
+// M1.1: physical constants match the values fixed in docs/CONVENTIONS.md.
 //
 // Every downstream reference check (420 km orbit, Hohmann, rocket equation) is derived from
 // these numbers, so a typo here would silently shift every result. Exact equality is correct:

@@ -211,7 +211,7 @@ TEST(PointMassGravity, AccelerationIsMinusGradientOfPotential) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Circular orbit consistency (CLAUDE.md reference: 420 km circular orbit, speed ~7.66 km/s)
+// Circular orbit consistency (CONVENTIONS reference check: 420 km circular orbit, speed ~7.66 km/s)
 // ---------------------------------------------------------------------------------------------
 
 // Circular orbit: centripetal acceleration v^2/r must be supplied entirely by gravity mu/r^2,
@@ -222,7 +222,7 @@ TEST(PointMassGravity, CircularSpeedAt420kmBalancesGravity) {
     const PointMassGravity grav;
     const double v_circ = std::sqrt(earth::mu / kR420_m);
     EXPECT_NEAR(v_circ, 7657.27, 0.01);  // hand derivation above, rounded to 0.01 m/s
-    EXPECT_NEAR(v_circ, 7660.0, 5.0);    // CLAUDE.md reference value
+    EXPECT_NEAR(v_circ, 7660.0, 5.0);    // CONVENTIONS reference value
 
     const Eigen::Vector3d r = r420_oblique();
     const double a_mag = grav.acceleration_eci(State{Epoch::j2000(), r, kZeroV}).norm();

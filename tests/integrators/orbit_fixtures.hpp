@@ -57,9 +57,8 @@ inline Eigen::Vector3d q_hat() {
 // ---------------------------------------------------------------------------------------------
 // r = R + 420 km = 6,378,137 + 420,000 = 6,798,137 m
 // n = sqrt(mu / r^3) = sqrt(3.986004418e14 / 3.14168e20) = 1.126378e-3 rad/s
-// T = 2 pi / n = 2 pi sqrt(r^3 / mu) = 5578.2227 s = 92.970 min
-//   (CLAUDE.md's "~92.8 min" is a known error in the reference table; the derivation gives 92.97.)
-// v = sqrt(mu / r) = 7657.27 m/s (CLAUDE.md: ~7.66 km/s, agrees)
+// T = 2 pi / n = 2 pi sqrt(r^3 / mu) = 5578.2227 s = 92.970 min (CONVENTIONS: 5578.2 s, agrees)
+// v = sqrt(mu / r) = 7657.27 m/s (CONVENTIONS: ~7.66 km/s, agrees)
 inline constexpr double kR420_m = earth::radius + 420.0e3;
 inline double circular_mean_motion_radps() {
     return std::sqrt(earth::mu / (kR420_m * kR420_m * kR420_m));

@@ -1,8 +1,9 @@
 # Roadmap
 
 Each milestone ends with measurable "done when" checks. Every check becomes a row in the README
-Results table, with the reference value and the measured number. Tasks inside a milestone run
-through the test-first loop in CLAUDE.md.
+Results table, with the reference value and the measured number. Tasks inside a milestone are
+test-first: a failing test with a derived reference and a justified tolerance, then the code (see
+[docs/CONVENTIONS.md](docs/CONVENTIONS.md)).
 
 ## M0: Project skeleton (done)
 - [x] CMake targets `simcore`, `simapp`, `simcore_tests`; presets debug, release, asan, web
@@ -54,7 +55,7 @@ through the test-first loop in CLAUDE.md.
 - **Done when:**
   - you can fly a manual orbit raise in the browser;
   - a replay is bit-identical on the same machine.
-  - Native and wasm need not match bit-for-bit; see the Eigen FMA note in CLAUDE.md.
+  - Native and wasm need not match bit-for-bit; see the Eigen FMA note in docs/CONVENTIONS.md.
 
 ## M4: Attitude control and autopilot (done)
 - [x] PD attitude controller on the quaternion error, with gyroscopic compensation
@@ -113,16 +114,3 @@ through the test-first loop in CLAUDE.md.
 - [ ] Technical report (10–15 pages, LaTeX): models, controllers, filter, validation, limitations
 - [ ] README: Results table, GIFs, live demo link, architecture diagram
 - **Done when:** every claim in the README Results table has a measured number.
-
-## Interview prep (one or two per milestone)
-- **M1:**
-  - Why int64 + fraction for time?
-  - Why is Verlet's energy error bounded while RK4's drifts?
-  - How does dense output let events be found without extra force evaluations?
-- **M2:** Why does the intermediate axis tumble? Why quaternions over Euler angles?
-- **M3:** Why does a fixed sim timestep matter for replay? What is a floating origin for?
-- **M4:** PD vs LQR: what does the LQR weighting trade off? Where do finite-burn losses come from?
-- **M5:** What does Lambert's problem solve? Why do patched conics drift in N-body?
-- **M6:** When do the CW equations break down, and why?
-- **M7:** What do NEES and NIS test? What does it mean when NEES is too high?
-- **M8:** What dominates the Horizons residual, and how would you reduce it?

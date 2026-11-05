@@ -62,7 +62,7 @@ VehicleState vehicle_at(const simcore::State& orbit, double propellant_kg) {
 
 }  // namespace
 
-// Circular 420 km at 51.6 deg (CLAUDE.md reference): v = sqrt(mu / r) = 7657.269 m/s,
+// Circular 420 km at 51.6 deg (CONVENTIONS reference check): v = sqrt(mu / r) = 7657.269 m/s,
 // T = 2 pi sqrt(r^3 / mu) = 5578.223 s (92.97 min), periapsis = apoapsis = 420 km.
 TEST(Telemetry, CircularOrbit) {
     const double r = earth::radius + 420.0e3;

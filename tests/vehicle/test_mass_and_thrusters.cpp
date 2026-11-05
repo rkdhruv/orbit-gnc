@@ -7,7 +7,7 @@
 // Thruster: force F = throttle * T_max * d_hat (body), torque about the CoM tau = r x F, propellant
 // consumption m_dot = throttle * T_max / (Isp g0). Exhaust speed v_e = Isp g0.
 // Rocket equation: dv = v_e ln(m0 / mf). Isp 300 s, m0/mf = 2 -> 2941.995 * ln 2 = 2039.24 m/s
-// (CLAUDE.md reference ~2,039 m/s).
+// (CONVENTIONS reference check ~2,039 m/s).
 
 #include <gtest/gtest.h>
 
@@ -140,7 +140,7 @@ TEST(Thruster, RejectsInvalidInput) {
     EXPECT_THROW((void)t.mass_flow_kgps(kNaN), std::invalid_argument);
 }
 
-// Tsiolkovsky: dv = v_e ln(m0 / mf). Isp 300 s, mass ratio 2 -> 2039.24 m/s (CLAUDE.md ~2,039).
+// Tsiolkovsky: dv = v_e ln(m0 / mf). Isp 300 s, mass ratio 2 -> 2039.24 m/s (CONVENTIONS ~2,039).
 TEST(RocketEquation, IdealDeltaV) {
     const double ve = 300.0 * simcore::g0;
     EXPECT_NEAR(simcore::rocket_delta_v_mps(ve, 800.0, 400.0), 2039.24, 0.01);

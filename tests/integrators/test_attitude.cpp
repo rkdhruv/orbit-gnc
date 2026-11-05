@@ -1,7 +1,7 @@
 // M2.2: attitude propagation (quaternion + Euler's equations) with fixed-step RK4.
 //
 // State y = [q (4); w_body (3)], y' = [1/2 q (x) [0, w]; I^-1 (tau - w x I w)]. One classical RK4
-// step on y, then q is renormalised (CLAUDE.md rule), since RK4 does not preserve |q| = 1.
+// step on y, then q is renormalised (CONVENTIONS rule), since RK4 does not preserve |q| = 1.
 // propagate_attitude uses n = ceil(T / h_max) equal steps, like propagate_fixed. It is attitude
 // only: the translational state handed to the torque model is held fixed (coupled motion is
 // propagate_six_dof).

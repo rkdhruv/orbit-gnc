@@ -496,7 +496,7 @@ TEST(PropagateFixed, RejectsNonPositiveOrNonFiniteHMax) {
 }
 
 TEST(PropagateFixed, IsDeterministic) {
-    // Same inputs, same machine -> bit-identical outputs (CLAUDE.md replay requirement).
+    // Same inputs, same machine -> bit-identical outputs (CONVENTIONS determinism rule).
     const PointMassGravity g;
     const State s0 = eccentric_periapsis_state();
     const Epoch t_end = s0.t + 0.37 * eccentric_period_s();
