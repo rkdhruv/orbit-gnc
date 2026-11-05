@@ -5,10 +5,11 @@ navigation and control, written from scratch in C++20. The deterministic
 simulation core (`simcore`) is separate from the raylib + Dear ImGui front end
 (`simapp`), and every physics feature is checked against a reference value.
 
-> Status: **M3, interactive front end.** Orbit propagation (point mass, J2, drag), events, rigid-body
-> attitude, thrusters and reaction wheels in a coupled 6-DOF sim, flown from a 3D front end with
-> time warp and deterministic replay. Guidance and control (the autopilot) come in M4; see
-> [ROADMAP.md](ROADMAP.md).
+> Status: **M5, analysis tooling and mission design.** Orbit propagation (point mass, J2, drag),
+> events, rigid-body attitude, thrusters and reaction wheels in a coupled 6-DOF sim, flown from a 3D
+> front end with time warp and deterministic replay; PD/LQR attitude control, momentum management
+> and an autopilot that flies LEO → GEO on its own (M4); a Python module and notebooks for analysis
+> (M5.1). Next: the Moon, Lambert and a lunar transfer; see [ROADMAP.md](ROADMAP.md).
 
 **Live demo:** https://rkdhruv.github.io/orbit-gnc/ (built and deployed by CI from `main`).
 
@@ -19,7 +20,9 @@ to turn the camera, scroll to zoom. "Verify replay" re-runs the session from its
 ## Build
 
 Requires CMake ≥ 3.25, Ninja and a C++20 compiler. Dependencies (Eigen,
-GoogleTest, raylib, Dear ImGui, rlImGui) are fetched automatically.
+GoogleTest, raylib, Dear ImGui, rlImGui, pybind11) are fetched automatically. The Python module is
+built when `analysis/.venv` (or another Python ≥ 3.10 with NumPy) is found; see
+[Python analysis](#python-analysis).
 
 ```sh
 cmake --preset debug && cmake --build --preset debug
@@ -50,9 +53,30 @@ python3 -m http.server -d build/web/simapp   # then open http://localhost:8000/s
 ```
 simcore/   simulation library: no UI, no I/O, deterministic
 simapp/    raylib + ImGui front end
-tests/     GoogleTest suite, mirrors simcore/
+bindings/  pybind11 module `orbitgnc` (wrappers only)
+analysis/  Jupyter notebooks + their pinned Python requirements
+tests/     GoogleTest suite, mirrors simcore/; tests/bindings/ checks the Python module
 cmake/     dependency pins
+docs/      CONVENTIONS.md: units, frames, constants, determinism, reference checks
 ```
+
+## Python analysis
+
+`orbitgnc` exposes simcore's epochs, states, elements, Kepler propagation, force models, the
+Dormand–Prince integrator (with `propagate_sampled`, a trajectory at chosen times from one run's
+dense output) and the transfer calculators, with Eigen vectors as NumPy arrays.
+
+```sh
+python3 -m venv analysis/.venv
+analysis/.venv/bin/pip install -r analysis/requirements.txt
+cmake --preset release && cmake --build --preset release   # builds build/release/python/orbitgnc*
+ctest --preset release -R bindings                          # the Python module's own tests
+analysis/.venv/bin/jupyter lab analysis/
+```
+
+- [`01_orbit_basics.ipynb`](analysis/01_orbit_basics.ipynb): one day of a 420 km, 51.6° orbit
+  under J2; the node regresses at −4.974°/day against −4.951°/day from the first-order formula
+  (0.46%, the size of the osculating-vs-mean-element difference).
 
 Every target is built with `-ffp-contract=off`, so the compiler never fuses
 `a*b + c` into an FMA, and replays are bit-identical on the same platform.
@@ -114,6 +138,12 @@ Each row is a GoogleTest assertion; the bound in the Reference column is what th
 | Plane change 51.6° → 41.6° at 420 km | 2v sin(Δi/2) = 1334.750 m/s | i = 41.6° to 1e-9 rad; RAAN, size unchanged |
 | Apoapsis-targeted burn, 300 km → apo 1000 km | apoapsis on target (impulsive dv 190.034 m/s) | 1000.005 km, 190.049 m/s |
 | **M4 done-when: autopilot flies 300 km → GEO alone** (20 kN upper stage) | Δv within 2% of 3892.557 m/s; GEO ± 10 km; e < 1e-3 | 3908.10 m/s (+0.40%, finite-burn loss 15.54 m/s); 35,784.2 × 35,789.2 km; e 5.9e-5 |
+| Hohmann from an e = 0.113 ellipse, up to 1500 km / down to 1000 km (M4 review) | a ± 1 km, e < 1e-3, Δv within 1% of 411.851 / 408.247 m/s | 1499.93 km, 411.854 m/s; 1000.03 km, 408.254 m/s |
+| Plane change on a GTO and an e = 0.3 orbit (M4 review) | 2·v_S·sin(Δi/2) = 2894.598 / 980.603 m/s | i on target; a, e unchanged (1e-9) |
+| 100 m/s burn stopped at 50 m/s, re-engaged a minute later (M4 review) | 100 ± 0.01 m/s in total | 100.00 m/s |
+| **M5: analysis tooling** | | |
+| `propagate_sampled`: 1000 samples over 10 orbits, 420 km (rtol 1e-12) | < 0.16 m (M1 drift bound, quadratic in angle) | 7.1 mm |
+| Python module vs the reference checks (14 `unittest` cases) | as the C++ suite: 7657.27 m/s, 3892.557 m/s, 2039.236 m/s, J2 to 1e-14 | all pass; same-input runs bit-identical |
 
 PD vs LQR, 30° skew-axis slew on the default vehicle (0.1 N·m wheels, I = diag(300, 400, 450) kg·m²):
 

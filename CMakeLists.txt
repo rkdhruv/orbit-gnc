@@ -9,6 +9,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(ORBIT_BUILD_APP "Build the raylib/ImGui front end (simapp)" ON)
 option(ORBIT_BUILD_TESTS "Build the GoogleTest suite (simcore_tests)" ON)
 option(ORBIT_WERROR "Treat warnings in our own targets as errors" OFF)
+# AUTO builds the Python module when a Python with NumPy is found (the presets look in
+# analysis/.venv first) and skips it otherwise; ON requires them; OFF never builds it.
+set(ORBIT_BUILD_BINDINGS AUTO CACHE STRING "Build the pybind11 module orbitgnc (AUTO, ON, OFF)")
+set_property(CACHE ORBIT_BUILD_BINDINGS PROPERTY STRINGS AUTO ON OFF)
 
 # Determinism: forbid the compiler from fusing a*b + c into a single FMA.
 # An FMA rounds once instead of twice, so whether it's used changes the last
@@ -40,6 +44,10 @@ add_subdirectory(simcore)
 
 if(ORBIT_BUILD_APP)
     add_subdirectory(simapp)
+endif()
+
+if(ORBIT_HAVE_BINDINGS)
+    add_subdirectory(bindings)
 endif()
 
 if(ORBIT_BUILD_TESTS)

@@ -55,3 +55,38 @@ if(ORBIT_BUILD_APP)
     target_include_directories(rlimgui SYSTEM PUBLIC ${rlimgui_SOURCE_DIR})
     target_link_libraries(rlimgui PUBLIC imgui raylib)
 endif()
+
+# --- Python + pybind11 (bindings/ only) ----------------------------------------
+# NumPy is checked here because the module hands Eigen vectors to Python as NumPy arrays; without
+# it the module would build but not import.
+set(ORBIT_HAVE_BINDINGS OFF)
+if(NOT ORBIT_BUILD_BINDINGS STREQUAL "OFF" AND NOT EMSCRIPTEN)
+    if(ORBIT_BUILD_BINDINGS STREQUAL "ON")
+        find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter Development.Module)
+    else()
+        find_package(Python3 3.10 COMPONENTS Interpreter Development.Module)
+    endif()
+    if(Python3_FOUND)
+        execute_process(COMMAND ${Python3_EXECUTABLE} -c "import numpy"
+                        RESULT_VARIABLE orbit_numpy_rc OUTPUT_QUIET ERROR_QUIET)
+        if(orbit_numpy_rc EQUAL 0)
+            set(ORBIT_HAVE_BINDINGS ON)
+        elseif(ORBIT_BUILD_BINDINGS STREQUAL "ON")
+            message(FATAL_ERROR "ORBIT_BUILD_BINDINGS=ON but ${Python3_EXECUTABLE} has no NumPy")
+        endif()
+    endif()
+    if(ORBIT_HAVE_BINDINGS)
+        message(STATUS "Python bindings: ON (${Python3_EXECUTABLE})")
+    else()
+        message(STATUS "Python bindings: skipped (no Python 3.10+ with dev headers and NumPy; "
+                       "see analysis/README.md)")
+    endif()
+endif()
+
+if(ORBIT_HAVE_BINDINGS)
+    FetchContent_Declare(pybind11
+        URL https://github.com/pybind/pybind11/archive/refs/tags/v3.1.0.tar.gz
+        URL_HASH SHA256=ef712655692a2e9bf7bb7874c022564a45f91d847ddee987e720cd9e28849665
+        SYSTEM)
+    FetchContent_MakeAvailable(pybind11)
+endif()

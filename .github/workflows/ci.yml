@@ -20,7 +20,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build libx11-dev libxrandr-dev libxinerama-dev \
-            libxcursor-dev libxi-dev libgl1-mesa-dev
+            libxcursor-dev libxi-dev libgl1-mesa-dev python3-dev python3-venv
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
@@ -34,8 +34,14 @@ jobs:
           path: build/release/_deps/*-subbuild/*-populate-prefix/src
           key: deps-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake') }}
 
+      # The venv the presets look in (analysis/.venv), with just what the bindings' tests need.
+      - name: Python environment
+        run: |
+          python3 -m venv analysis/.venv
+          analysis/.venv/bin/pip install -r analysis/requirements-test.txt
+
       - name: Configure
-        run: cmake --preset release -DORBIT_WERROR=ON
+        run: cmake --preset release -DORBIT_WERROR=ON -DORBIT_BUILD_BINDINGS=ON
       - name: Build
         run: cmake --build --preset release
       - name: Test

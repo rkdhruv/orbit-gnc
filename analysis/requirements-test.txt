@@ -1,0 +1,2 @@
+# What the bindings' tests need (CI installs only this).
+numpy==2.5.4

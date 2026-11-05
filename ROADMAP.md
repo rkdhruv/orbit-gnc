@@ -73,7 +73,7 @@ test-first: a failing test with a derived reference and a justified tolerance, t
   - a PD vs LQR comparison of slew time, overshoot and wheel effort.
 
 ## M5: Analysis tooling and mission design
-- [ ] pybind11 module (`bindings/`, wrappers only) + Jupyter notebook skeleton in `analysis/`
+- [x] pybind11 module (`bindings/`, wrappers only) + Jupyter notebook skeleton in `analysis/`
 - [ ] Moon as a third-body `ForceModel` on a deterministic analytic orbit
   - Spheres of influence (Earth–Moon ≈ 66,000 km); patched-conic transitions via event detection.
 - [ ] Lambert solver (Izzo 2015); porkchop plot in the notebook

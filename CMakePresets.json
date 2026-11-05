@@ -8,7 +8,8 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "Python3_ROOT_DIR": "${sourceDir}/analysis/.venv"
       }
     },
     {
@@ -30,6 +31,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "ORBIT_BUILD_APP": "OFF",
+        "ORBIT_BUILD_BINDINGS": "OFF",
         "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined",
         "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined",
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
@@ -44,7 +46,8 @@
       "toolchainFile": "$env{EMSCRIPTEN_ROOT}/cmake/Modules/Platform/Emscripten.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "ORBIT_BUILD_TESTS": "OFF"
+        "ORBIT_BUILD_TESTS": "OFF",
+        "ORBIT_BUILD_BINDINGS": "OFF"
       }
     }
   ],

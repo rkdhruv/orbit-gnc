@@ -24,6 +24,7 @@ add_executable(simcore_tests
     events/test_events.cpp
     integrators/test_dormand_prince.cpp
     integrators/test_dense_output.cpp
+    integrators/test_sampled.cpp
     sim/test_tick_scheduler.cpp
     sim/test_simulation.cpp
     sim/test_telemetry.cpp
@@ -42,3 +43,11 @@ target_link_libraries(simcore_tests PRIVATE simcore GTest::gtest_main orbit_warn
 target_include_directories(simcore_tests PRIVATE ${PROJECT_SOURCE_DIR}/simapp)
 
 gtest_discover_tests(simcore_tests)
+
+# The Python module against the same reference checks (stdlib unittest, module on PYTHONPATH).
+if(ORBIT_HAVE_BINDINGS)
+    add_test(NAME bindings.python
+             COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/bindings -v)
+    set_tests_properties(bindings.python PROPERTIES
+                         ENVIRONMENT "PYTHONPATH=$<TARGET_FILE_DIR:orbitgnc>")
+endif()

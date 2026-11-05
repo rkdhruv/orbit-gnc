@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <span>
+#include <vector>
 
 #include "simcore/dynamics/force_model.hpp"
 #include "simcore/dynamics/state.hpp"
@@ -54,5 +56,13 @@ private:
     DpOptions opts_;
     DpStats stats_;
 };
+
+// One propagate() run from s0 to times.back(), read out at each of `times` from the accepted
+// steps' dense output (so sampling doesn't change the steps): a sample at s0.t is s0, and the
+// last sample is exactly propagate()'s final state. Times must be non-decreasing (forward) or
+// non-increasing (backward) and all on one side of s0.t; otherwise throws std::invalid_argument
+// before integrating. Empty times: no integration, no samples. dp.stats() describe the run.
+std::vector<State> propagate_sampled(DormandPrince54& dp, const ForceModel& f, const State& s0,
+                                     std::span<const Epoch> times);
 
 }  // namespace simcore

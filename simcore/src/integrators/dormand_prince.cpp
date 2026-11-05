@@ -204,4 +204,45 @@ State DormandPrince54::propagate(const ForceModel& f, const State& s0, const Epo
     return State{t, y.head<3>(), y.tail<3>()};
 }
 
+std::vector<State> propagate_sampled(DormandPrince54& dp, const ForceModel& f, const State& s0,
+                                     std::span<const Epoch> times) {
+    std::vector<State> out;
+    if (times.empty()) {
+        return out;
+    }
+    const bool forward = times.back() >= s0.t;
+    // Every sample on the same side of s0.t as the last one and in order toward it: then each
+    // lies in [s0.t, t_end] and they come up in the order the steps reach them.
+    Epoch prev = s0.t;
+    for (const Epoch& t : times) {
+        SIMCORE_CHECK(forward ? t >= prev : t <= prev,
+                      "sample times must run one way from s0.t (non-decreasing or "
+                      "non-increasing)");
+        prev = t;
+    }
+    out.reserve(times.size());
+    std::size_t k = 0;
+    while (k < times.size() && times[k] == s0.t) {
+        out.push_back(s0);  // at the start: the state itself, no interpolation
+        ++k;
+    }
+    const Epoch& t_end = times.back();
+    // Read off the samples each accepted step covers. The last sample (t_end) is left to the
+    // final state propagate() returns, which is exact rather than interpolated.
+    const State end = dp.propagate(f, s0, t_end, [&](const DenseSegment& seg) {
+        const Epoch& seg_end = seg.t_end();
+        while (k < times.size() && times[k] != t_end &&
+               (forward ? times[k] <= seg_end : times[k] >= seg_end)) {
+            out.push_back(seg.state_at(times[k]));
+            ++k;
+        }
+        return StepAction::kContinue;
+    });
+    while (k < times.size()) {
+        out.push_back(end);  // t_end (and any repeats of it)
+        ++k;
+    }
+    return out;
+}
+
 }  // namespace simcore

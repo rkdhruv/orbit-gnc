@@ -1,0 +1,5 @@
+# The analysis notebooks. Direct dependencies pinned; their own dependencies are not.
+-r requirements-test.txt
+matplotlib==3.11.2
+jupyterlab==4.6.5
+ipykernel==7.4.0
